@@ -7,7 +7,7 @@ import { ENDPOINTS } from '../lib/api';
 
 const { FiMic, FiX, FiPause, FiPlay, FiSend, FiLoader } = FiIcons;
 
-const VoiceRecorder = ({ onSend }) => {
+const VoiceRecorder = ({ onSend, sessionId }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState(null);
@@ -129,7 +129,9 @@ const VoiceRecorder = ({ onSend }) => {
 
       const formData = new FormData();
       formData.append('audio', audioBlobCopy, 'recording.wav');
-      
+      formData.append('sessionId', sessionId || '');
+      formData.append('timestamp', new Date().toISOString());
+
       const response = await fetch(ENDPOINTS.AUDIO, {
         method: 'POST',
         body: formData,

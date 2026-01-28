@@ -6,7 +6,7 @@ import VoiceRecorder from './VoiceRecorder';
 
 const { FiSend, FiLoader } = FiIcons;
 
-const InputArea = ({ value, onChange, onSend, isLoading }) => {
+const InputArea = ({ value, onChange, onSend, isLoading, sessionId }) => {
   const [isFocused, setIsFocused] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -48,7 +48,7 @@ const InputArea = ({ value, onChange, onSend, isLoading }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          <VoiceRecorder onSend={handleVoiceRecorderOutput} />
+          <VoiceRecorder onSend={handleVoiceRecorderOutput} sessionId={sessionId} />
 
           <motion.button
             type="submit"

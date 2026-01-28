@@ -8,8 +8,9 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 import HomePage from './HomePage';
 import SettingsModal from './SettingsModal';
+import ArticlePublishModal, { parseArticleFromMessage } from './ArticlePublishModal';
 import { useAuth } from '../contexts/AuthContext';
-import { sendChatMessage, extractWebhookResponse } from '../lib/api';
+import { sendChatMessage, extractWebhookResponse, publishToWordPress } from '../lib/api';
 import {
   getConversations,
   createConversation,
@@ -34,6 +35,11 @@ const ChatInterface = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [waitingForAudioResponse, setWaitingForAudioResponse] = useState(false);
   const messagesEndRef = useRef(null);
+  const pendingConversationRef = useRef(null); // Track which conversation is waiting for response
+
+  // État pour le modal de publication WordPress
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
+  const [articleToPublish, setArticleToPublish] = useState(null);
 
   // Générer un titre intelligent basé sur le premier message
   const generateTitle = (text) => {
@@ -126,6 +132,9 @@ const ChatInterface = () => {
   // Sélectionner une conversation existante
   const selectConversation = (id) => {
     if (id === currentConversationId) return;
+    // Reset loading state when switching conversations
+    setIsLoading(false);
+    setWaitingForAudioResponse(false);
     setCurrentConversationId(id);
     setShowHomePage(false);
   };
@@ -151,19 +160,24 @@ const ChatInterface = () => {
 
   const handleWebhookResponse = async (responseData) => {
     if (!waitingForAudioResponse && !isLoading) return;
+
+    const targetConversationId = pendingConversationRef.current || currentConversationId;
+
     setWaitingForAudioResponse(false);
     setIsLoading(false);
+    pendingConversationRef.current = null;
 
     const aiResponse = extractWebhookResponse(responseData);
 
     // Sauvegarder en BDD
-    const { data: savedMsg } = await addMessage(currentConversationId, {
+    const { data: savedMsg } = await addMessage(targetConversationId, {
       sender: 'ai',
       text: aiResponse,
       type: 'text'
     });
 
-    if (savedMsg) {
+    // Only update UI if still on the same conversation
+    if (savedMsg && currentConversationId === targetConversationId) {
       setMessages(prev => [
         ...prev,
         {
@@ -201,6 +215,7 @@ const ChatInterface = () => {
 
     setInputValue('');
     setIsLoading(true);
+    pendingConversationRef.current = conversationId;
 
     try {
       const response = await sendChatMessage(text, conversationId);
@@ -213,7 +228,8 @@ const ChatInterface = () => {
         type: 'text'
       });
 
-      if (aiMsg) {
+      // Only update UI if still on the same conversation
+      if (aiMsg && currentConversationId === conversationId) {
         setMessages(prev => [
           ...prev,
           {
@@ -239,7 +255,11 @@ const ChatInterface = () => {
     } catch (error) {
       console.error('Error:', error);
     } finally {
-      setIsLoading(false);
+      // Only reset loading if this was the pending conversation
+      if (pendingConversationRef.current === conversationId) {
+        setIsLoading(false);
+        pendingConversationRef.current = null;
+      }
     }
   };
 
@@ -275,6 +295,7 @@ const ChatInterface = () => {
         if (messageContent.expectResponse) {
           setIsLoading(true);
           setWaitingForAudioResponse(true);
+          pendingConversationRef.current = currentConversationId;
         }
         return;
       }
@@ -303,6 +324,27 @@ const ChatInterface = () => {
       }
     });
     doc.save(`chat-${currentConversationId?.slice(0, 8) || 'export'}.pdf`);
+  };
+
+  // Ouvrir le modal de publication avec l'article parsé
+  const handleOpenPublishModal = (messageText) => {
+    const parsed = parseArticleFromMessage(messageText);
+    if (parsed) {
+      setArticleToPublish(parsed);
+      setIsPublishModalOpen(true);
+    }
+  };
+
+  // Publier l'article sur WordPress
+  const handlePublishToWordPress = async (articleData) => {
+    try {
+      await publishToWordPress(articleData);
+      // Envoyer un message dans le chat pour confirmer
+      await sendMessageInternal('Article publié sur WordPress avec succès !', currentConversationId);
+    } catch (error) {
+      console.error('Erreur publication WordPress:', error);
+      throw error;
+    }
   };
 
   // Afficher la page d'accueil
@@ -347,6 +389,7 @@ const ChatInterface = () => {
                   key={m.id}
                   message={{ ...m, timestamp: new Date(m.timestamp) }}
                   onDownload={downloadPDF}
+                  onPublishArticle={handleOpenPublishModal}
                 />
               ))}
               {isLoading && <TypingIndicator />}
@@ -355,8 +398,19 @@ const ChatInterface = () => {
           </div>
         </div>
 
-        <InputArea value={inputValue} onChange={setInputValue} onSend={sendMessage} isLoading={isLoading} />
+        <InputArea value={inputValue} onChange={setInputValue} onSend={sendMessage} isLoading={isLoading} sessionId={currentConversationId} />
       </div>
+
+      {/* Modal de publication WordPress */}
+      <ArticlePublishModal
+        isOpen={isPublishModalOpen}
+        onClose={() => {
+          setIsPublishModalOpen(false);
+          setArticleToPublish(null);
+        }}
+        article={articleToPublish}
+        onPublish={handlePublishToWordPress}
+      />
     </div>
   );
 };

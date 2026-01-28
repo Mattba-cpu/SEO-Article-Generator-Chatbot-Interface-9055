@@ -4,10 +4,11 @@ import * as FiIcons from 'react-icons/fi';
 import SafeIcon from '../common/SafeIcon';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { isPublishableArticle } from './ArticlePublishModal';
 
-const { FiUser, FiCopy, FiCheck, FiDownload, FiPlay, FiPause } = FiIcons;
+const { FiUser, FiCopy, FiCheck, FiDownload, FiPlay, FiPause, FiSend } = FiIcons;
 
-const MessageBubble = ({ message, onDownload }) => {
+const MessageBubble = ({ message, onDownload, onPublishArticle }) => {
   const [copied, setCopied] = React.useState(false);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const audioRef = React.useRef(null);
@@ -17,6 +18,7 @@ const MessageBubble = ({ message, onDownload }) => {
 
   const isUser = message.sender === 'user';
   const isAudio = message.type === 'audio';
+  const canPublish = !isUser && !isAudio && isPublishableArticle(message.text);
 
   React.useEffect(() => {
     if (isAudio && message.audioBlob) {
@@ -189,6 +191,19 @@ const MessageBubble = ({ message, onDownload }) => {
               </div>
             )}
           </div>
+
+          {/* Bouton Publier sur WordPress */}
+          {canPublish && (
+            <motion.button
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              onClick={() => onPublishArticle && onPublishArticle(message.text)}
+              className="mt-2 px-4 py-2 bg-[#D85A4A] text-white text-sm rounded-lg flex items-center gap-2 hover:bg-[#c44d3f] transition-colors"
+            >
+              <SafeIcon icon={FiSend} className="text-sm" />
+              Publier sur WordPress
+            </motion.button>
+          )}
         </div>
       </div>
     </motion.div>
