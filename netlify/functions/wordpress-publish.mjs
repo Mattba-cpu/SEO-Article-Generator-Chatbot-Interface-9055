@@ -21,8 +21,8 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
   const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
   const buffer = Buffer.from(base64Data, 'base64');
 
-  // Upload vers WordPress Media Library
-  const response = await fetch(`${wpUrl}/wp-json/wp/v2/media`, {
+  // Upload vers WordPress Media Library (rest_route pour compatibilité serveur)
+  const response = await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media`, {
     method: 'POST',
     headers: {
       'Authorization': authHeader,
@@ -41,7 +41,7 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
 
   // Mettre à jour l'alt text si fourni
   if (alt) {
-    await fetch(`${wpUrl}/wp-json/wp/v2/media/${mediaData.id}`, {
+    await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media/${mediaData.id}`, {
       method: 'POST',
       headers: {
         'Authorization': authHeader,
@@ -219,7 +219,7 @@ export async function handler(event) {
       },
     };
 
-    const postResponse = await fetch(`${wpUrl}/wp-json/wp/v2/posts`, {
+    const postResponse = await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/posts`, {
       method: 'POST',
       headers: {
         'Authorization': authHeader,
