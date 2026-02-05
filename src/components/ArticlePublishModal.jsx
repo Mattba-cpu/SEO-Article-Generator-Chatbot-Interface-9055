@@ -271,6 +271,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
+      // Préparer les images avec leurs données base64
       const imagesData = await Promise.all(
         images.filter(img => blocks.some(b => b.imageId === img.id)).map(async (img) => {
           const base64 = await fileToBase64(img.file);
@@ -283,11 +284,17 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
         })
       );
 
-      const htmlContent = blocksToHtml(blocks);
-
+      // Envoyer les blocs structurés (pas le HTML)
       await onPublish({
         title: editedTitle,
-        content: htmlContent,
+        blocks: blocks.map(block => ({
+          id: block.id,
+          type: block.type,
+          headingLevel: block.headingLevel || null,
+          content: block.content || '',
+          imageId: block.imageId || null,
+          alt: block.alt || ''
+        })),
         metaDescription: editedMeta,
         images: imagesData
       });
