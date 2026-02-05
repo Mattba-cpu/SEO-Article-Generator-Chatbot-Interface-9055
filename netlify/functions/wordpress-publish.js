@@ -156,8 +156,19 @@ export async function handler(event) {
     const wpUser = process.env.WORDPRESS_USER;
     const wpPassword = process.env.WORDPRESS_APP_PASSWORD;
 
-    if (!wpUrl || !wpUser || !wpPassword) {
-      throw new Error('Variables WordPress manquantes (WORDPRESS_URL, WORDPRESS_USER, WORDPRESS_APP_PASSWORD)');
+    // Debug: voir quelles variables sont définies
+    const missing = [];
+    if (!wpUrl) missing.push('WORDPRESS_URL');
+    if (!wpUser) missing.push('WORDPRESS_USER');
+    if (!wpPassword) missing.push('WORDPRESS_APP_PASSWORD');
+
+    if (missing.length > 0) {
+      console.log('Variables présentes:', {
+        WORDPRESS_URL: !!wpUrl,
+        WORDPRESS_USER: !!wpUser,
+        WORDPRESS_APP_PASSWORD: !!wpPassword
+      });
+      throw new Error(`Variables WordPress manquantes: ${missing.join(', ')}`);
     }
 
     // Parse le body
