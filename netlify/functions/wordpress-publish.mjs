@@ -1,102 +1,48 @@
 /**
  * Netlify Function pour publier un article sur WordPress avec Divi Builder
- * Structure fixe Template O.Live :
- * - Section 1
- *   - Row 1 : Texte (intro H1 + paragraphe)
- *   - Row 2 : Pixel Image Slider 1 + Texte 1 + Vidéo + Texte 2 + Pixel Image Slider 2
- *   - Row 3 : Texte CTA + Bouton
- * - Section 2 (vide)
+ * Structure fixe Template O.Live
  */
 
 import sharp from 'sharp';
 
-// Helper pour encoder en base64 les credentials
 const btoa = (str) => Buffer.from(str).toString('base64');
 
-// Configuration des dimensions pour le carrousel
-// On garde le ratio original, on redimensionne juste à une taille max
-const CAROUSEL_CONFIG = {
+const IMAGE_CONFIG = {
   maxWidth: 1200,
   maxHeight: 1200,
   quality: 85,
 };
 
 /**
- * Traite une image pour l'adapter au carrousel
- * Redimensionne à une taille max SANS changer le ratio (pas de crop)
+ * Traite une image (redimensionne sans crop)
  */
-async function processImageForCarousel(base64Data, imageName) {
-  console.log(`[SHARP] Début traitement image: ${imageName}`);
-
-  // Retirer le préfixe data:image/...;base64, si présent
+async function processImage(base64Data) {
   const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
   const inputBuffer = Buffer.from(cleanBase64, 'base64');
 
-  console.log(`[SHARP] Buffer input créé: ${inputBuffer.length} bytes`);
-
-  try {
-    // Obtenir les métadonnées de l'image originale
-    const metadata = await sharp(inputBuffer).metadata();
-    console.log(`[SHARP] Image originale: ${metadata.width}x${metadata.height} (${metadata.format})`);
-    console.log(`[SHARP] Ratio original: ${(metadata.width / metadata.height).toFixed(2)}`);
-
-    // Traiter l'image avec sharp - fit 'inside' garde le ratio original
-    const processedBuffer = await sharp(inputBuffer)
-      .resize(CAROUSEL_CONFIG.maxWidth, CAROUSEL_CONFIG.maxHeight, {
-        fit: 'inside', // Redimensionne pour tenir dans les dimensions max, SANS crop
-        withoutEnlargement: true, // Ne pas agrandir si plus petit
-      })
-      .jpeg({ quality: CAROUSEL_CONFIG.quality })
-      .toBuffer();
-
-    // Vérifier les dimensions de sortie
-    const outputMetadata = await sharp(processedBuffer).metadata();
-    console.log(`[SHARP] Image traitée: ${outputMetadata.width}x${outputMetadata.height} (${outputMetadata.format})`);
-    console.log(`[SHARP] Ratio conservé: ${(outputMetadata.width / outputMetadata.height).toFixed(2)}`);
-    console.log(`[SHARP] Taille finale: ${processedBuffer.length} bytes (${(processedBuffer.length / 1024).toFixed(1)} KB)`);
-
-    return processedBuffer;
-  } catch (sharpError) {
-    console.error(`[SHARP] ERREUR traitement: ${sharpError.message}`);
-    throw sharpError;
-  }
+  return sharp(inputBuffer)
+    .resize(IMAGE_CONFIG.maxWidth, IMAGE_CONFIG.maxHeight, {
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: IMAGE_CONFIG.quality })
+    .toBuffer();
 }
 
 /**
- * Upload une image vers la médiathèque WordPress
- * L'image est d'abord traitée pour être au format carrousel (16:9)
+ * Upload une image vers WordPress
  */
-async function uploadImageToWordPress(imageData, wpUrl, authHeader, forCarousel = true) {
+async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
   const { base64, name } = imageData;
 
-  console.log(`[UPLOAD] Début upload image: ${name}`);
-  console.log(`[UPLOAD] forCarousel: ${forCarousel}`);
-  console.log(`[UPLOAD] base64 length: ${base64?.length || 0} chars`);
+  const buffer = await processImage(base64);
+  const fileName = name.replace(/\.[^.]+$/, '.jpg');
 
-  let buffer;
-  let contentType = 'image/jpeg';
-  let fileName = name;
-
-  if (forCarousel) {
-    console.log(`[UPLOAD] Traitement carrousel activé - max: ${CAROUSEL_CONFIG.maxWidth}x${CAROUSEL_CONFIG.maxHeight} (ratio conservé)`);
-    // Traiter l'image - redimensionne sans crop, garde le ratio original
-    buffer = await processImageForCarousel(base64, name);
-    // Forcer le nom en .jpg car sharp convertit en JPEG
-    fileName = name.replace(/\.[^.]+$/, '.jpg');
-    console.log(`[UPLOAD] Image traitée: ${fileName} - buffer size: ${buffer.length} bytes`);
-  } else {
-    // Garder l'image originale
-    const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
-    buffer = Buffer.from(base64Data, 'base64');
-    contentType = imageData.type || 'image/jpeg';
-  }
-
-  // Upload vers WordPress Media Library
   const response = await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media`, {
     method: 'POST',
     headers: {
       'Authorization': authHeader,
-      'Content-Type': contentType,
+      'Content-Type': 'image/jpeg',
       'Content-Disposition': `attachment; filename="${fileName}"`,
     },
     body: buffer,
@@ -108,43 +54,26 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader, forCarousel 
   }
 
   const mediaData = await response.json();
-
-  return {
-    id: mediaData.id,
-    url: mediaData.source_url,
-  };
+  return { id: mediaData.id, url: mediaData.source_url };
 }
 
 /**
- * Génère le contenu Divi complet (format Template O.Live EXACT)
+ * Génère le contenu Divi (Template O.Live)
  */
 function generateDiviContent(template, slider1Urls, slider2Urls) {
   const moduleAttrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
-
-  // Extraire les données du template
   const { intro, texte1, videoUrl, texte2 } = template;
 
-  // Construire le HTML de l'intro
-  const introHtml = intro
-    ? `<p>${intro}</p>`
-    : '<p>&nbsp;</p>';
-
-  // Construire le HTML du texte 1
+  const introHtml = intro ? `<p>${intro}</p>` : '<p>&nbsp;</p>';
   const texte1Html = texte1
     ? texte1.split('\n').filter(l => l.trim()).map(p => `<p>${p}</p>`).join('\n')
     : '<p>&nbsp;</p>';
-
-  // Construire le HTML du texte 2
   const texte2Html = texte2
     ? texte2.split('\n').filter(l => l.trim()).map(p => `<p>${p}</p>`).join('\n')
     : '<p>&nbsp;</p>';
 
-  // === STRUCTURE FIXE TEMPLATE O.LIVE ===
-
   // Section 1
   const section1Attrs = 'fb_built="1" _builder_version="4.16" global_colors_info="{}"';
-
-  // Row 1 : Texte intro (sera combiné avec le titre dans postData)
   const row1Attrs = '_builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"';
   const col1Attrs = 'type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"';
   const text1Attrs = '_builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"';
@@ -155,80 +84,58 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
   const row2Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
   const col2Attrs = 'type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
-  // Module 1: Images Slider 1
-  // Si 1 seule image → et_pb_image simple
-  // Si plusieurs images → dipi_image_gallery (carrousel)
+  // Slider 1
   let imageModule1 = '';
   if (slider1Urls.length === 1) {
-    // Image simple sans carrousel
     imageModule1 = `[et_pb_image src="${slider1Urls[0]}" alt="" title_text="" align="center" ${moduleAttrs}][/et_pb_image]`;
   } else if (slider1Urls.length > 1) {
-    // Carrousel avec plusieurs images
-    const slider1Children = slider1Urls.map(url =>
+    const children = slider1Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" item_image_size="full" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    // Attributs pour un affichage correct du slider sans crop
     const sliderAttrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" slider_image_fit="contain" use_original_ratio="on" slider_item_width="100%" ${moduleAttrs}`;
-    imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${sliderAttrs}]${slider1Children}[/dipi_image_gallery]`;
+    imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${sliderAttrs}]${children}[/dipi_image_gallery]`;
   } else {
-    // Pas d'image - module vide
     imageModule1 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
   }
 
-  // Module 2: Texte 1
   const texteModule1 = `[et_pb_text ${moduleAttrs}]${texte1Html}[/et_pb_text]`;
-
-  // Module 3: Vidéo
   const videoModule = `[et_pb_video src="${videoUrl || ''}" admin_label="Vidéo" ${moduleAttrs}][/et_pb_video]`;
-
-  // Module 4: Texte 2
   const texteModule2 = `[et_pb_text ${moduleAttrs}]${texte2Html}[/et_pb_text]`;
 
-  // Module 5: Images Slider 2
-  // Si 1 seule image → et_pb_image simple
-  // Si plusieurs images → dipi_image_gallery (carrousel)
+  // Slider 2
   let imageModule2 = '';
   if (slider2Urls.length === 1) {
-    // Image simple sans carrousel
     imageModule2 = `[et_pb_image src="${slider2Urls[0]}" alt="" title_text="" align="center" ${moduleAttrs}][/et_pb_image]`;
   } else if (slider2Urls.length > 1) {
-    // Carrousel avec plusieurs images
-    const slider2Children = slider2Urls.map(url =>
+    const children = slider2Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" item_image_size="full" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    // Attributs pour un affichage correct du slider sans crop
-    const slider2Attrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" slider_image_fit="contain" use_original_ratio="on" slider_item_width="100%" ${moduleAttrs}`;
-    imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${slider2Attrs}]${slider2Children}[/dipi_image_gallery]`;
+    const sliderAttrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" slider_image_fit="contain" use_original_ratio="on" slider_item_width="100%" ${moduleAttrs}`;
+    imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${sliderAttrs}]${children}[/dipi_image_gallery]`;
   } else {
-    // Pas d'image - module vide
     imageModule2 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
   }
 
   const row2 = `[et_pb_row ${row2Attrs}][et_pb_column ${col2Attrs}]${imageModule1}${texteModule1}${videoModule}${texteModule2}${imageModule2}[/et_pb_column][/et_pb_row]`;
 
-  // Row 3 : CTA (Texte + Bouton)
+  // Row 3 : CTA
   const row3Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
-
   const ctaText = `[et_pb_text ${moduleAttrs}]<h3><span style="font-size: 14px; color: #666666;">Prêt à donner une nouvelle dimension à votre projet ?</span></h3>
 <p><span>Offrez à vos spectateurs une expérience immersive unique grâce à nos solutions complètes de captation et diffusion live ! Notre équipe d'experts met à votre disposition un dispositif technique de pointe.</span></p>
 <p><span>Basés à Meyreuil, nous intervenons dans toute la France pour donner vie à vos événements.</span></p>[/et_pb_text]`;
-
   const ctaButton = `[et_pb_button button_url="https://olive-prod.fr/?page_id=300" button_text="CONTACT" button_alignment="center" ${moduleAttrs}][/et_pb_button]`;
-
   const row3 = `[et_pb_row ${row3Attrs}][et_pb_column ${col2Attrs}]${ctaText}${ctaButton}[/et_pb_column][/et_pb_row]`;
 
   // Section 2 (vide)
   const section2 = `[et_pb_section fb_built="1" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][/et_pb_section]`;
 
-  // Structure complète
   return `[et_pb_section ${section1Attrs}]${row1}${row2}${row3}[/et_pb_section]${section2}`;
 }
 
 /**
- * Handler principal de la Netlify Function
+ * Handler principal
  */
 export async function handler(event) {
-  // CORS headers
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
@@ -236,26 +143,15 @@ export async function handler(event) {
     'Content-Type': 'application/json',
   };
 
-  // Handle preflight request
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers, body: '' };
   }
 
-  // Only allow POST
   if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
+    return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
 
   try {
-    // Debug: taille du body reçu
-    const bodySize = event.body ? event.body.length : 0;
-    console.log(`Body reçu: ${bodySize} caractères (${(bodySize / 1024 / 1024).toFixed(2)} MB)`);
-
-    // Récupérer les credentials depuis les variables d'environnement
     const wpUrl = process.env.WORDPRESS_URL;
     const wpUser = process.env.WORDPRESS_USER;
     const wpPassword = process.env.WORDPRESS_APP_PASSWORD;
@@ -269,86 +165,50 @@ export async function handler(event) {
       throw new Error(`Variables WordPress manquantes: ${missing.join(', ')}`);
     }
 
-    // Parse le body
-    let payload;
-    try {
-      payload = JSON.parse(event.body);
-    } catch (parseError) {
-      console.error('Erreur parsing JSON:', parseError.message);
-      throw new Error(`Erreur parsing JSON: ${parseError.message}`);
-    }
-
+    const payload = JSON.parse(event.body);
     const { title, metaDescription, template } = payload;
-    console.log(`Titre: ${title}`);
-    console.log(`Slider 1: ${template?.slider1?.length || 0} images`);
-    console.log(`Slider 2: ${template?.slider2?.length || 0} images`);
 
     if (!title) {
       throw new Error('Titre requis');
     }
 
-    // Authentification WordPress (Basic Auth avec Application Password)
     const authHeader = `Basic ${btoa(`${wpUser}:${wpPassword}`)}`;
 
-    // === 1. Upload des images du Slider 1 ===
+    // Upload images Slider 1
     const slider1Urls = [];
-    if (template?.slider1 && template.slider1.length > 0) {
-      console.log(`\n========== SLIDER 1 ==========`);
-      console.log(`Nombre d'images: ${template.slider1.length}`);
-      for (let i = 0; i < template.slider1.length; i++) {
-        const imageData = template.slider1[i];
-        console.log(`\n--- Image ${i + 1}/${template.slider1.length} ---`);
-        console.log(`Nom: ${imageData.name}`);
-        console.log(`Type: ${imageData.type}`);
+    if (template?.slider1?.length > 0) {
+      for (const imageData of template.slider1) {
         try {
-          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader, true);
+          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
           slider1Urls.push(uploaded.url);
-          console.log(`[SUCCESS] Image uploadée: ${uploaded.url}`);
         } catch (error) {
-          console.error(`[ERROR] Erreur upload:`, error.message);
-          console.error(error.stack);
+          console.error('Erreur upload slider1:', error.message);
         }
       }
-      console.log(`\nSlider 1 terminé: ${slider1Urls.length} images uploadées`);
-    } else {
-      console.log(`\n========== SLIDER 1: Aucune image ==========`);
     }
 
-    // === 2. Upload des images du Slider 2 ===
+    // Upload images Slider 2
     const slider2Urls = [];
-    if (template?.slider2 && template.slider2.length > 0) {
-      console.log(`\n========== SLIDER 2 ==========`);
-      console.log(`Nombre d'images: ${template.slider2.length}`);
-      for (let i = 0; i < template.slider2.length; i++) {
-        const imageData = template.slider2[i];
-        console.log(`\n--- Image ${i + 1}/${template.slider2.length} ---`);
-        console.log(`Nom: ${imageData.name}`);
-        console.log(`Type: ${imageData.type}`);
+    if (template?.slider2?.length > 0) {
+      for (const imageData of template.slider2) {
         try {
-          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader, true);
+          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
           slider2Urls.push(uploaded.url);
-          console.log(`[SUCCESS] Image uploadée: ${uploaded.url}`);
         } catch (error) {
-          console.error(`[ERROR] Erreur upload:`, error.message);
-          console.error(error.stack);
+          console.error('Erreur upload slider2:', error.message);
         }
       }
-      console.log(`\nSlider 2 terminé: ${slider2Urls.length} images uploadées`);
-    } else {
-      console.log(`\n========== SLIDER 2: Aucune image ==========`);
     }
 
-    // === 3. Générer le contenu Divi ===
+    // Générer le contenu Divi
     const diviContent = generateDiviContent(template || {}, slider1Urls, slider2Urls);
-    console.log('Contenu Divi généré');
 
-    // === 4. Créer l'article WordPress ===
-    // Le titre H1 est ajouté au début du contenu Divi
+    // Créer l'article WordPress
     const fullContent = `[et_pb_section fb_built="1" _builder_version="4.16" global_colors_info="{}"][et_pb_row _builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"][et_pb_text _builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"]<h1><strong>${title}</strong></h1>
 <p>${template?.intro || ''}</p>[/et_pb_text][/et_pb_column][/et_pb_row]${diviContent.replace(/^\[et_pb_section[^\]]*\]\[et_pb_row[^\]]*\]\[et_pb_column[^\]]*\]\[et_pb_text[^\]]*\][^[]*\[\/et_pb_text\]\[\/et_pb_column\]\[\/et_pb_row\]/, '')}`;
 
     const postData = {
-      title: title,
+      title,
       content: fullContent,
       status: 'draft',
       meta: {
@@ -374,9 +234,7 @@ export async function handler(event) {
     }
 
     const post = await postResponse.json();
-    console.log(`Article créé: ${post.link}`);
 
-    // === 5. Retourner le résultat ===
     return {
       statusCode: 200,
       headers,
@@ -391,15 +249,11 @@ export async function handler(event) {
     };
 
   } catch (error) {
-    console.error('Erreur wordpress-publish:', error);
-
+    console.error('Erreur wordpress-publish:', error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({
-        success: false,
-        error: error.message,
-      }),
+      body: JSON.stringify({ success: false, error: error.message }),
     };
   }
 }
