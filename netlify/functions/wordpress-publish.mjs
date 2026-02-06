@@ -13,10 +13,10 @@ import sharp from 'sharp';
 // Helper pour encoder en base64 les credentials
 const btoa = (str) => Buffer.from(str).toString('base64');
 
-// Configuration des dimensions pour le carrousel (format 16:9)
+// Configuration des dimensions pour le carrousel (format 4:3)
 const CAROUSEL_CONFIG = {
   width: 1200,
-  height: 675, // 16:9 ratio
+  height: 900, // 4:3 ratio
   fit: 'cover',
   position: 'center',
   quality: 85,
@@ -24,23 +24,41 @@ const CAROUSEL_CONFIG = {
 
 /**
  * Traite une image pour l'adapter au format carrousel
- * Redimensionne en 16:9 (1200x675) avec crop centré
+ * Redimensionne en 4:3 (1200x900) avec crop centré
  */
-async function processImageForCarousel(base64Data) {
+async function processImageForCarousel(base64Data, imageName) {
+  console.log(`[SHARP] Début traitement image: ${imageName}`);
+
   // Retirer le préfixe data:image/...;base64, si présent
   const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
   const inputBuffer = Buffer.from(cleanBase64, 'base64');
 
-  // Traiter l'image avec sharp
-  const processedBuffer = await sharp(inputBuffer)
-    .resize(CAROUSEL_CONFIG.width, CAROUSEL_CONFIG.height, {
-      fit: CAROUSEL_CONFIG.fit,
-      position: CAROUSEL_CONFIG.position,
-    })
-    .jpeg({ quality: CAROUSEL_CONFIG.quality })
-    .toBuffer();
+  console.log(`[SHARP] Buffer input créé: ${inputBuffer.length} bytes`);
 
-  return processedBuffer;
+  try {
+    // Obtenir les métadonnées de l'image originale
+    const metadata = await sharp(inputBuffer).metadata();
+    console.log(`[SHARP] Image originale: ${metadata.width}x${metadata.height} (${metadata.format})`);
+
+    // Traiter l'image avec sharp
+    const processedBuffer = await sharp(inputBuffer)
+      .resize(CAROUSEL_CONFIG.width, CAROUSEL_CONFIG.height, {
+        fit: CAROUSEL_CONFIG.fit,
+        position: CAROUSEL_CONFIG.position,
+      })
+      .jpeg({ quality: CAROUSEL_CONFIG.quality })
+      .toBuffer();
+
+    // Vérifier les dimensions de sortie
+    const outputMetadata = await sharp(processedBuffer).metadata();
+    console.log(`[SHARP] Image traitée: ${outputMetadata.width}x${outputMetadata.height} (${outputMetadata.format})`);
+    console.log(`[SHARP] Taille finale: ${processedBuffer.length} bytes (${(processedBuffer.length / 1024).toFixed(1)} KB)`);
+
+    return processedBuffer;
+  } catch (sharpError) {
+    console.error(`[SHARP] ERREUR traitement: ${sharpError.message}`);
+    throw sharpError;
+  }
 }
 
 /**
@@ -50,16 +68,21 @@ async function processImageForCarousel(base64Data) {
 async function uploadImageToWordPress(imageData, wpUrl, authHeader, forCarousel = true) {
   const { base64, name } = imageData;
 
+  console.log(`[UPLOAD] Début upload image: ${name}`);
+  console.log(`[UPLOAD] forCarousel: ${forCarousel}`);
+  console.log(`[UPLOAD] base64 length: ${base64?.length || 0} chars`);
+
   let buffer;
   let contentType = 'image/jpeg';
   let fileName = name;
 
   if (forCarousel) {
-    // Traiter l'image pour le format carrousel (16:9, 1200x675)
-    buffer = await processImageForCarousel(base64);
+    console.log(`[UPLOAD] Traitement carrousel activé - cible: ${CAROUSEL_CONFIG.width}x${CAROUSEL_CONFIG.height} (4:3)`);
+    // Traiter l'image pour le format carrousel (4:3, 1200x900)
+    buffer = await processImageForCarousel(base64, name);
     // Forcer le nom en .jpg car sharp convertit en JPEG
     fileName = name.replace(/\.[^.]+$/, '.jpg');
-    console.log(`Image traitée pour carrousel: ${fileName} (${CAROUSEL_CONFIG.width}x${CAROUSEL_CONFIG.height})`);
+    console.log(`[UPLOAD] Image traitée: ${fileName} - buffer size: ${buffer.length} bytes`);
   } else {
     // Garder l'image originale
     const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
@@ -269,31 +292,49 @@ export async function handler(event) {
     // === 1. Upload des images du Slider 1 ===
     const slider1Urls = [];
     if (template?.slider1 && template.slider1.length > 0) {
-      console.log(`Upload de ${template.slider1.length} image(s) pour Slider 1...`);
-      for (const imageData of template.slider1) {
+      console.log(`\n========== SLIDER 1 ==========`);
+      console.log(`Nombre d'images: ${template.slider1.length}`);
+      for (let i = 0; i < template.slider1.length; i++) {
+        const imageData = template.slider1[i];
+        console.log(`\n--- Image ${i + 1}/${template.slider1.length} ---`);
+        console.log(`Nom: ${imageData.name}`);
+        console.log(`Type: ${imageData.type}`);
         try {
-          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
+          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader, true);
           slider1Urls.push(uploaded.url);
-          console.log(`Image uploadée: ${uploaded.url}`);
+          console.log(`[SUCCESS] Image uploadée: ${uploaded.url}`);
         } catch (error) {
-          console.error(`Erreur upload:`, error.message);
+          console.error(`[ERROR] Erreur upload:`, error.message);
+          console.error(error.stack);
         }
       }
+      console.log(`\nSlider 1 terminé: ${slider1Urls.length} images uploadées`);
+    } else {
+      console.log(`\n========== SLIDER 1: Aucune image ==========`);
     }
 
     // === 2. Upload des images du Slider 2 ===
     const slider2Urls = [];
     if (template?.slider2 && template.slider2.length > 0) {
-      console.log(`Upload de ${template.slider2.length} image(s) pour Slider 2...`);
-      for (const imageData of template.slider2) {
+      console.log(`\n========== SLIDER 2 ==========`);
+      console.log(`Nombre d'images: ${template.slider2.length}`);
+      for (let i = 0; i < template.slider2.length; i++) {
+        const imageData = template.slider2[i];
+        console.log(`\n--- Image ${i + 1}/${template.slider2.length} ---`);
+        console.log(`Nom: ${imageData.name}`);
+        console.log(`Type: ${imageData.type}`);
         try {
-          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
+          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader, true);
           slider2Urls.push(uploaded.url);
-          console.log(`Image uploadée: ${uploaded.url}`);
+          console.log(`[SUCCESS] Image uploadée: ${uploaded.url}`);
         } catch (error) {
-          console.error(`Erreur upload:`, error.message);
+          console.error(`[ERROR] Erreur upload:`, error.message);
+          console.error(error.stack);
         }
       }
+      console.log(`\nSlider 2 terminé: ${slider2Urls.length} images uploadées`);
+    } else {
+      console.log(`\n========== SLIDER 2: Aucune image ==========`);
     }
 
     // === 3. Générer le contenu Divi ===
