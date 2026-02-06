@@ -85,15 +85,22 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
   const row2Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
   const col2Attrs = 'type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
-  // Module 1: Pixel Image Slider 1 (carrousel)
-  let pixelSlider1 = '';
-  if (slider1Urls.length > 0) {
+  // Module 1: Images Slider 1
+  // Si 1 seule image → et_pb_image simple
+  // Si plusieurs images → dipi_image_gallery (carrousel)
+  let imageModule1 = '';
+  if (slider1Urls.length === 1) {
+    // Image simple sans carrousel
+    imageModule1 = `[et_pb_image src="${slider1Urls[0]}" alt="" title_text="" align="center" ${moduleAttrs}][/et_pb_image]`;
+  } else if (slider1Urls.length > 1) {
+    // Carrousel avec plusieurs images
     const slider1Children = slider1Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    pixelSlider1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider1Children}[/dipi_image_gallery]`;
+    imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider1Children}[/dipi_image_gallery]`;
   } else {
-    pixelSlider1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}][/dipi_image_gallery]`;
+    // Pas d'image - module vide
+    imageModule1 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
   }
 
   // Module 2: Texte 1
@@ -105,18 +112,25 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
   // Module 4: Texte 2
   const texteModule2 = `[et_pb_text ${moduleAttrs}]${texte2Html}[/et_pb_text]`;
 
-  // Module 5: Pixel Image Slider 2 (carrousel)
-  let pixelSlider2 = '';
-  if (slider2Urls.length > 0) {
+  // Module 5: Images Slider 2
+  // Si 1 seule image → et_pb_image simple
+  // Si plusieurs images → dipi_image_gallery (carrousel)
+  let imageModule2 = '';
+  if (slider2Urls.length === 1) {
+    // Image simple sans carrousel
+    imageModule2 = `[et_pb_image src="${slider2Urls[0]}" alt="" title_text="" align="center" ${moduleAttrs}][/et_pb_image]`;
+  } else if (slider2Urls.length > 1) {
+    // Carrousel avec plusieurs images
     const slider2Children = slider2Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    pixelSlider2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center" height="734px"]${slider2Children}[/dipi_image_gallery]`;
+    imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider2Children}[/dipi_image_gallery]`;
   } else {
-    pixelSlider2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center" height="734px"][/dipi_image_gallery]`;
+    // Pas d'image - module vide
+    imageModule2 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
   }
 
-  const row2 = `[et_pb_row ${row2Attrs}][et_pb_column ${col2Attrs}]${pixelSlider1}${texteModule1}${videoModule}${texteModule2}${pixelSlider2}[/et_pb_column][/et_pb_row]`;
+  const row2 = `[et_pb_row ${row2Attrs}][et_pb_column ${col2Attrs}]${imageModule1}${texteModule1}${videoModule}${texteModule2}${imageModule2}[/et_pb_column][/et_pb_row]`;
 
   // Row 3 : CTA (Texte + Bouton)
   const row3Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
