@@ -13,28 +13,39 @@ export const parseArticleFromMessage = (text) => {
 
   const hasTitle = /titre\s*:/i.test(text);
   const hasArticle = /article\s*:/i.test(text) || /<h[1-3]/i.test(text);
-  const hasMeta = /meta\s*description\s*:/i.test(text) || /metadescription\s*:/i.test(text);
 
   if (!hasTitle && !hasArticle) return null;
 
+  // Extraire le titre (s'arrête à la première nouvelle ligne)
   let title = '';
-  const titleMatch = text.match(/titre\s*:\s*(.+?)(?=\n|article\s*:|metadescription\s*:|$)/is);
+  const titleMatch = text.match(/titre\s*:\s*(.+?)(?=\n|$)/i);
   if (titleMatch) {
     title = titleMatch[1].trim().replace(/<[^>]*>/g, '');
   }
 
+  // Extraire le slug (s'arrête à la première nouvelle ligne)
+  let slug = '';
+  const slugMatch = text.match(/slug\s*:\s*(.+?)(?=\n|$)/i);
+  if (slugMatch) {
+    slug = slugMatch[1].trim().replace(/<[^>]*>/g, '').toLowerCase().replace(/\s+/g, '-');
+  }
+
+  // Extraire la meta description (une ou deux lignes)
   let metaDescription = '';
-  const metaMatch = text.match(/meta\s*description\s*:\s*(.+?)(?=\n\n|titre\s*:|article\s*:|$)/is) ||
-                    text.match(/metadescription\s*:\s*(.+?)(?=\n\n|titre\s*:|article\s*:|$)/is);
+  const metaMatch = text.match(/meta\s*description\s*:\s*(.+?)(?=\n\n|\ntitre|\narticle|\nslug|$)/is) ||
+                    text.match(/metadescription\s*:\s*(.+?)(?=\n\n|\ntitre|\narticle|\nslug|$)/is);
   if (metaMatch) {
     metaDescription = metaMatch[1].trim().replace(/<[^>]*>/g, '');
   }
 
+  // Extraire le contenu de l'article (le plus gros bloc)
   let content = '';
-  const articleMatch = text.match(/article\s*:\s*([\s\S]+?)(?=titre\s*:|metadescription\s*:|meta\s*description\s*:|$)/i);
+  // Chercher d'abord avec "Article:" comme label
+  const articleMatch = text.match(/article\s*:\s*([\s\S]+?)(?=\n(?:titre|metadescription|meta description|slug)\s*:|$)/i);
   if (articleMatch) {
     content = articleMatch[1].trim();
   } else {
+    // Sinon, prendre tout le contenu HTML
     const htmlMatch = text.match(/(<h[1-3][\s\S]+)/i);
     if (htmlMatch) {
       content = htmlMatch[1].trim();
@@ -46,7 +57,8 @@ export const parseArticleFromMessage = (text) => {
   return {
     title: title || 'Sans titre',
     content,
-    metaDescription
+    metaDescription,
+    slug
   };
 };
 
@@ -113,7 +125,8 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
     texte2: '',
     slider2Images: [], // Carrousel 2
     // Meta
-    metaDescription: ''
+    metaDescription: '',
+    slug: ''
   });
 
   const [isPublishing, setIsPublishing] = useState(false);
@@ -135,14 +148,15 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
         videoUrl: '',
         texte2: texte2,
         slider2Images: [],
-        metaDescription: article.metaDescription || ''
+        metaDescription: article.metaDescription || '',
+        slug: article.slug || ''
       });
     }
   }, [article]);
 
   const handleImageUpload = useCallback((files, sliderKey) => {
     const newImages = Array.from(files).map((file, index) => ({
-      id: `img_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `img_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 11)}`,
       file,
       preview: URL.createObjectURL(file),
       name: file.name,
@@ -262,6 +276,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
       await onPublish({
         title: formData.title,
         metaDescription: formData.metaDescription,
+        slug: formData.slug,
         // Structure template Divi
         template: {
           intro: formData.introText,
@@ -411,16 +426,29 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
           <div className="flex-1 overflow-y-auto p-6">
             {activeTab === 'edit' ? (
               <div className="space-y-6">
-                {/* Meta Description */}
-                <div className="bg-[#0a0a0a] rounded-xl p-4 border border-gray-800/50">
-                  <label className="block text-sm text-gray-400 mb-2">Meta description (SEO)</label>
-                  <textarea
-                    value={formData.metaDescription}
-                    onChange={(e) => updateField('metaDescription', e.target.value)}
-                    className="w-full px-3 py-2 bg-transparent border border-gray-700 rounded-lg text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
-                    rows={2}
-                    placeholder="Description pour les moteurs de recherche..."
-                  />
+                {/* Meta SEO */}
+                <div className="bg-[#0a0a0a] rounded-xl p-4 border border-gray-800/50 space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Slug (URL de l'article)</label>
+                    <input
+                      type="text"
+                      value={formData.slug}
+                      onChange={(e) => updateField('slug', e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))}
+                      className="w-full px-3 py-2 bg-transparent border border-gray-700 rounded-lg text-white placeholder-gray-500 outline-none focus:border-[#D85A4A]/50"
+                      placeholder="mon-article-seo"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">olive-prod.fr/{formData.slug || 'mon-article'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Meta description (SEO)</label>
+                    <textarea
+                      value={formData.metaDescription}
+                      onChange={(e) => updateField('metaDescription', e.target.value)}
+                      className="w-full px-3 py-2 bg-transparent border border-gray-700 rounded-lg text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
+                      rows={2}
+                      placeholder="Description pour les moteurs de recherche..."
+                    />
+                  </div>
                 </div>
 
                 {/* Section 1: Intro */}
