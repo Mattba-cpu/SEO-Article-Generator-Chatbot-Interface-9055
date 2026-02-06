@@ -59,101 +59,130 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
 }
 
 /**
- * Convertit un bloc en shortcode Divi (format Template O.Live)
+ * Génère un module Divi pour un bloc (format Template O.Live)
+ * Retourne le module Divi correspondant au type de bloc
  */
-function blockToDivi(block, imageUrls) {
-  const textAttrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
+function blockToModule(block, imageUrls) {
+  const moduleAttrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
   switch (block.type) {
     case 'image': {
       const imageUrl = imageUrls[block.imageKey] || '';
-      const alt = block.alt || '';
-      // Utilise dipi_image_gallery comme dans le template O.Live
-      return `[et_pb_row _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][dipi_image_gallery admin_label="Pixel Image Slider" _builder_version="4.27.4" _module_preset="default" width="100%" max_width="67%" module_alignment="center" global_colors_info="{}"][dipi_image_gallery_child item_image="${imageUrl}" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][/dipi_image_gallery_child][/dipi_image_gallery][/et_pb_column][/et_pb_row]`;
+      // Pixel Image Slider (dipi_image_gallery)
+      return `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center"][dipi_image_gallery_child item_image="${imageUrl}" ${moduleAttrs}][/dipi_image_gallery_child][/dipi_image_gallery]`;
     }
 
     case 'heading': {
       const content = block.text || '';
       const level = block.level || 2;
+      let htmlContent;
       if (level === 1) {
-        return `<h1><strong>${content}</strong></h1>`;
+        htmlContent = `<h1><strong>${content}</strong></h1>`;
       } else if (level === 3) {
-        return `<h3><strong>${content}</strong></h3>`;
+        htmlContent = `<h3><strong>${content}</strong></h3>`;
       } else if (level === 4) {
-        return `<h4><em><span style="font-size: medium;">${content}</span></em></h4>`;
+        htmlContent = `<h4><em><span style="font-size: medium;">${content}</span></em></h4>`;
+      } else {
+        htmlContent = `<h${level}><strong>${content}</strong></h${level}>`;
       }
-      return `<h${level}><strong>${content}</strong></h${level}>`;
+      return `[et_pb_text ${moduleAttrs}]${htmlContent}[/et_pb_text]`;
     }
 
     case 'paragraph': {
       const content = block.text || '';
-      return `<p>${content}</p>`;
+      return `[et_pb_text ${moduleAttrs}]<p>${content}</p>[/et_pb_text]`;
     }
 
     case 'list': {
       const tag = block.listType === 'ordered' ? 'ol' : 'ul';
       const content = block.text || '';
-      return `<${tag}>${content}</${tag}>`;
+      return `[et_pb_text ${moduleAttrs}]<${tag}>${content}</${tag}>[/et_pb_text]`;
     }
 
     case 'quote': {
       const content = block.text || '';
-      return `<p><em>${content}</em></p>`;
+      return `[et_pb_text ${moduleAttrs}]<p><em>${content}</em></p>[/et_pb_text]`;
+    }
+
+    case 'video': {
+      const src = block.src || block.url || '';
+      return `[et_pb_video src="${src}" admin_label="Vidéo" ${moduleAttrs}][/et_pb_video]`;
     }
 
     case 'code': {
       const content = block.text || '';
-      return `<pre><code>${content}</code></pre>`;
+      return `[et_pb_code ${moduleAttrs}]<pre><code>${content}</code></pre>[/et_pb_code]`;
     }
 
     default:
-      return `<p>${block.text || block.html || ''}</p>`;
+      return `[et_pb_text ${moduleAttrs}]<p>${block.text || block.html || ''}</p>[/et_pb_text]`;
   }
 }
 
 /**
  * Génère le contenu Divi complet (format Template O.Live)
+ * Structure exacte :
+ * - Section
+ *   - Row 1 : Texte (intro H1 + paragraphe)
+ *   - Row 2 : Pixel Image Slider + Texte + Vidéo + Texte + Pixel Image Slider (contenu principal)
+ *   - Row 3 : Texte + Bouton (CTA)
+ * - Section (vide)
  */
 function generateDiviContent(blocks, imageUrls) {
   const sectionAttrs = 'fb_built="1" _builder_version="4.16" global_colors_info="{}"';
-  const rowAttrs = '_builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"';
-  const columnAttrs = 'type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"';
-  const textAttrs = '_builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"';
+  const row1Attrs = '_builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"';
+  const row2Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
+  const row3Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
+  const col1Attrs = 'type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"';
+  const col2Attrs = 'type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
+  const introTextAttrs = '_builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"';
 
-  // Séparer les blocs images des autres
-  const textBlocks = [];
-  const imageRows = [];
+  // Séparer le premier bloc (intro H1) du reste
+  let introContent = '';
+  const contentModules = [];
 
-  blocks.forEach(block => {
-    if (block.type === 'image') {
-      imageRows.push(blockToDivi(block, imageUrls));
+  blocks.forEach((block, index) => {
+    if (index === 0 && block.type === 'heading' && block.level === 1) {
+      // Premier H1 = intro
+      const content = block.text || '';
+      introContent = `<h1><strong>${content}</strong></h1>`;
+    } else if (index === 1 && block.type === 'paragraph' && introContent) {
+      // Deuxième bloc = paragraphe intro (ajouté au H1)
+      const content = block.text || '';
+      introContent += `\n<p>${content}</p>`;
     } else {
-      textBlocks.push(blockToDivi(block, imageUrls));
+      // Reste = contenu principal (Row 2)
+      contentModules.push(blockToModule(block, imageUrls));
     }
   });
 
-  // Contenu texte dans un seul et_pb_text (comme le template)
-  const textContent = textBlocks.join('\n');
+  // Si pas de H1 en intro, prendre le premier paragraphe
+  if (!introContent && blocks.length > 0) {
+    const firstBlock = blocks[0];
+    if (firstBlock.type === 'paragraph') {
+      introContent = `<p>${firstBlock.text || ''}</p>`;
+      contentModules.shift(); // Retirer du contenu principal
+    }
+  }
 
-  // CTA final (comme dans le template O.Live)
-  const ctaRow = `[et_pb_row _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][et_pb_text _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"]<h3><span style="font-size: 14px; color: #666666;">Prêt à donner une nouvelle dimension à votre projet ?</span></h3>
+  // === ROW 1 : Intro (Texte avec H1 + paragraphe intro) ===
+  const row1 = `[et_pb_row ${row1Attrs}][et_pb_column ${col1Attrs}][et_pb_text ${introTextAttrs}]${introContent}[/et_pb_text][/et_pb_column][/et_pb_row]`;
+
+  // === ROW 2 : Contenu principal (tous les modules dans une seule colonne) ===
+  const allModules = contentModules.join('');
+  const row2 = `[et_pb_row ${row2Attrs}][et_pb_column ${col2Attrs}]${allModules}[/et_pb_column][/et_pb_row]`;
+
+  // === ROW 3 : CTA (Texte + Bouton) ===
+  const ctaTextAttrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
+  const row3 = `[et_pb_row ${row3Attrs}][et_pb_column ${col2Attrs}][et_pb_text ${ctaTextAttrs}]<h3><span style="font-size: 14px; color: #666666;">Prêt à donner une nouvelle dimension à votre projet ?</span></h3>
 <p><span>Offrez à vos spectateurs une expérience immersive unique grâce à nos solutions complètes de captation et diffusion live ! Notre équipe d'experts met à votre disposition un dispositif technique de pointe.</span></p>
-<p><span>Basés à Meyreuil, nous intervenons dans toute la France pour donner vie à vos événements.</span></p>[/et_pb_text][et_pb_button button_url="https://olive-prod.fr/?page_id=300" button_text="CONTACT" button_alignment="center" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][/et_pb_button][/et_pb_column][/et_pb_row]`;
+<p><span>Basés à Meyreuil, nous intervenons dans toute la France pour donner vie à vos événements.</span></p>[/et_pb_text][et_pb_button button_url="https://olive-prod.fr/?page_id=300" button_text="CONTACT" button_alignment="center" ${ctaTextAttrs}][/et_pb_button][/et_pb_column][/et_pb_row]`;
 
-  // Structure Divi complète comme le template
-  let content = `[et_pb_section ${sectionAttrs}][et_pb_row ${rowAttrs}][et_pb_column ${columnAttrs}][et_pb_text ${textAttrs}]${textContent}[/et_pb_text][/et_pb_column][/et_pb_row]`;
+  // === SECTION 2 : Vide (comme dans le template) ===
+  const section2 = `[et_pb_section fb_built="1" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"][/et_pb_section]`;
 
-  // Ajouter les images dans des rows séparés
-  imageRows.forEach(imgRow => {
-    content += imgRow;
-  });
-
-  // Ajouter le CTA final
-  content += ctaRow;
-
-  content += `[/et_pb_section]`;
-
-  return content;
+  // Structure complète
+  return `[et_pb_section ${sectionAttrs}]${row1}${row2}${row3}[/et_pb_section]${section2}`;
 }
 
 /**
