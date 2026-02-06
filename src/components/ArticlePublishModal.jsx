@@ -1,9 +1,9 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
 import SafeIcon from '../common/SafeIcon';
 
-const { FiX, FiUpload, FiImage, FiTrash2, FiSend, FiLoader, FiVideo, FiType, FiEye, FiEdit3 } = FiIcons;
+const { FiX, FiUpload, FiImage, FiTrash2, FiSend, FiLoader, FiVideo, FiType, FiEye, FiEdit3, FiMove } = FiIcons;
 
 /**
  * Détecte et extrait les informations d'un article depuis un message
@@ -175,6 +175,13 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
     });
   }, []);
 
+  const reorderImages = useCallback((sliderKey, newOrder) => {
+    setFormData(prev => ({
+      ...prev,
+      [sliderKey]: newOrder
+    }));
+  }, []);
+
   const updateField = useCallback((field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
@@ -251,6 +258,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
       );
 
       // Envoyer les données structurées selon la template
+      // Le parent (ChatInterface) gère la fermeture du modal après succès
       await onPublish({
         title: formData.title,
         metaDescription: formData.metaDescription,
@@ -264,8 +272,6 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
           slider2: slider2Data
         }
       });
-
-      onClose();
     } catch (error) {
       console.error('Erreur publication:', error);
     } finally {
@@ -273,7 +279,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
     }
   };
 
-  // Composant pour une zone d'upload d'images (slider)
+  // Composant pour une zone d'upload d'images (slider) avec drag & drop reorder
   const ImageSliderZone = ({ sliderKey, images, inputRef, label }) => (
     <div className="space-y-3">
       <label className="block text-sm font-medium text-white flex items-center gap-2">
@@ -282,9 +288,15 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
         <span className="text-xs text-gray-500 font-normal">
           ({images.length} image{images.length !== 1 ? 's' : ''})
         </span>
+        {images.length > 1 && (
+          <span className="text-xs text-gray-500 font-normal flex items-center gap-1">
+            <SafeIcon icon={FiMove} className="text-xs" />
+            Glissez pour réordonner
+          </span>
+        )}
       </label>
 
-      {/* Zone de drop */}
+      {/* Zone de drop pour upload */}
       <div
         onDrop={(e) => handleDrop(e, sliderKey)}
         onDragOver={(e) => { e.preventDefault(); setDragOverZone(sliderKey); }}
@@ -309,25 +321,40 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
         />
       </div>
 
-      {/* Aperçu des images */}
+      {/* Aperçu des images avec drag & drop reorder */}
       {images.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <Reorder.Group
+          axis="x"
+          values={images}
+          onReorder={(newOrder) => reorderImages(sliderKey, newOrder)}
+          className="flex flex-wrap gap-2"
+        >
           {images.map((img) => (
-            <div key={img.id} className="relative group">
+            <Reorder.Item
+              key={img.id}
+              value={img}
+              className="relative group cursor-grab active:cursor-grabbing"
+              whileDrag={{ scale: 1.05, zIndex: 50 }}
+            >
               <img
                 src={img.preview}
                 alt={img.name}
-                className="w-20 h-20 object-cover rounded-lg border border-gray-700"
+                className="w-20 h-20 object-cover rounded-lg border border-gray-700 pointer-events-none"
+                draggable={false}
               />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 rounded-lg transition-colors pointer-events-none" />
               <button
                 onClick={(e) => { e.stopPropagation(); removeImage(sliderKey, img.id); }}
-                className="absolute -top-2 -right-2 p-1 bg-red-600 rounded-full text-white hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-2 -right-2 p-1 bg-red-600 rounded-full text-white hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity z-10"
               >
                 <SafeIcon icon={FiTrash2} className="text-xs" />
               </button>
-            </div>
+              <span className="absolute bottom-1 left-1 text-[10px] bg-black/60 text-white px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                {images.indexOf(img) + 1}
+              </span>
+            </Reorder.Item>
           ))}
-        </div>
+        </Reorder.Group>
       )}
     </div>
   );

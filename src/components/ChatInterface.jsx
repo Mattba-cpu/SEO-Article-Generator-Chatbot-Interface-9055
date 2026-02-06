@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence } from 'framer-motion';
-import { v4 as uuidv4 } from 'uuid';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
 import TypingIndicator from './TypingIndicator';
@@ -14,12 +13,21 @@ import { sendChatMessage, extractWebhookResponse, publishToWordPress } from '../
 import {
   getConversations,
   createConversation,
-  updateConversationTitle,
   deleteConversation as deleteConv,
   getMessages,
   addMessage
 } from '../lib/conversationService';
 import { jsPDF } from 'jspdf';
+
+// Messages de succès pour la publication WordPress
+const SUCCESS_MESSAGES = [
+  "Parfait ! Ton article est en ligne sur WordPress.",
+  "C'est fait ! L'article a été publié avec succès.",
+  "Article publié ! Tu peux le consulter et le peaufiner si besoin.",
+  "Nickel, l'article est maintenant sur WordPress en brouillon.",
+  "Publication réussie ! Clique sur le lien pour voir ton article.",
+  "Voilà, c'est en ligne ! L'article t'attend sur WordPress."
+];
 
 const ChatInterface = () => {
   const { user } = useAuth();
@@ -338,9 +346,39 @@ const ChatInterface = () => {
   // Publier l'article sur WordPress
   const handlePublishToWordPress = async (articleData) => {
     try {
-      await publishToWordPress(articleData);
-      // Envoyer un message dans le chat pour confirmer
-      await sendMessageInternal('Article publié sur WordPress avec succès !', currentConversationId);
+      const result = await publishToWordPress(articleData);
+
+      // Fermer le modal immédiatement
+      setIsPublishModalOpen(false);
+      setArticleToPublish(null);
+
+      // Choisir un message aléatoire
+      const randomMessage = SUCCESS_MESSAGES[Math.floor(Math.random() * SUCCESS_MESSAGES.length)];
+      const articleUrl = result?.postUrl || result?.editUrl || '#';
+
+      // Créer le message de confirmation avec le lien
+      const confirmationText = `${randomMessage}\n\n🔗 [Voir l'article sur WordPress](${articleUrl})`;
+
+      // Ajouter directement dans les messages (pas de sendMessageInternal qui déclenche l'IA)
+      const { data: savedMsg } = await addMessage(currentConversationId, {
+        sender: 'ai',
+        text: confirmationText,
+        type: 'text'
+      });
+
+      if (savedMsg) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: savedMsg.id,
+            text: confirmationText,
+            sender: 'ai',
+            type: 'text',
+            timestamp: savedMsg.created_at
+          }
+        ]);
+      }
+
     } catch (error) {
       console.error('Erreur publication WordPress:', error);
       throw error;
