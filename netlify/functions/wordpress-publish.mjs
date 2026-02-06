@@ -95,10 +95,10 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
   } else if (slider1Urls.length > 1) {
     // Carrousel avec plusieurs images
     const slider1Children = slider1Urls.map(url =>
-      `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
+      `[dipi_image_gallery_child item_image="${url}" item_image_size="full" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    // Attributs pour un affichage correct du slider
-    const sliderAttrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" ${moduleAttrs}`;
+    // Attributs pour un affichage correct du slider sans crop
+    const sliderAttrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" slider_image_fit="contain" use_original_ratio="on" slider_item_width="100%" ${moduleAttrs}`;
     imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${sliderAttrs}]${slider1Children}[/dipi_image_gallery]`;
   } else {
     // Pas d'image - module vide
@@ -124,10 +124,10 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
   } else if (slider2Urls.length > 1) {
     // Carrousel avec plusieurs images
     const slider2Children = slider2Urls.map(url =>
-      `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
+      `[dipi_image_gallery_child item_image="${url}" item_image_size="full" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    // Attributs pour un affichage correct du slider
-    const slider2Attrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" ${moduleAttrs}`;
+    // Attributs pour un affichage correct du slider sans crop
+    const slider2Attrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" slider_image_fit="contain" use_original_ratio="on" slider_item_width="100%" ${moduleAttrs}`;
     imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${slider2Attrs}]${slider2Children}[/dipi_image_gallery]`;
   } else {
     // Pas d'image - module vide
