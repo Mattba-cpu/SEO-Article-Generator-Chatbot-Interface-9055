@@ -5,7 +5,7 @@ import SafeIcon from '../common/SafeIcon';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 
-const { FiSend, FiMessageSquare, FiTrash2, FiSettings } = FiIcons;
+const { FiSend, FiMessageSquare, FiTrash2, FiSettings, FiGrid } = FiIcons;
 
 const HomePage = ({
   conversations,
@@ -13,6 +13,7 @@ const HomePage = ({
   onNewConversation,
   onDeleteConversation,
   onOpenSettings,
+  onOpenGallery,
   isLoading = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
@@ -46,13 +47,22 @@ const HomePage = ({
           className="h-8 w-auto object-contain"
           style={{ maxHeight: '32px' }}
         />
-        <button
-          onClick={onOpenSettings}
-          className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a1a] rounded-lg transition-all"
-          title="Paramètres"
-        >
-          <SafeIcon icon={FiSettings} className="text-lg" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onOpenGallery}
+            className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a1a] rounded-lg transition-all"
+            title="Articles WordPress"
+          >
+            <SafeIcon icon={FiGrid} className="text-lg" />
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a1a] rounded-lg transition-all"
+            title="Paramètres"
+          >
+            <SafeIcon icon={FiSettings} className="text-lg" />
+          </button>
+        </div>
       </header>
 
       {/* Main content */}

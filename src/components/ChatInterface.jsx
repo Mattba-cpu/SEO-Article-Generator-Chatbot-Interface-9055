@@ -8,6 +8,7 @@ import Sidebar from './Sidebar';
 import HomePage from './HomePage';
 import SettingsModal from './SettingsModal';
 import ArticlePublishModal, { parseArticleFromMessage } from './ArticlePublishModal';
+import WordPressGallery from './WordPressGallery';
 import { useAuth } from '../contexts/AuthContext';
 import { sendChatMessage, extractWebhookResponse, publishToWordPress } from '../lib/api';
 import {
@@ -17,6 +18,7 @@ import {
   getMessages,
   addMessage
 } from '../lib/conversationService';
+import { saveWordPressPost } from '../lib/wordpressService';
 import { jsPDF } from 'jspdf';
 
 // Messages de succès pour la publication WordPress
@@ -32,6 +34,7 @@ const SUCCESS_MESSAGES = [
 const ChatInterface = () => {
   const { user } = useAuth();
   const [showHomePage, setShowHomePage] = useState(true);
+  const [showGallery, setShowGallery] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
@@ -352,12 +355,20 @@ const ChatInterface = () => {
       setIsPublishModalOpen(false);
       setArticleToPublish(null);
 
+      // Sauvegarder dans la galerie Supabase
+      await saveWordPressPost({
+        title: articleData.title,
+        postUrl: result?.postUrl || '',
+        editUrl: result?.editUrl || '',
+        postId: result?.postId || null
+      });
+
       // Choisir un message aléatoire
       const randomMessage = SUCCESS_MESSAGES[Math.floor(Math.random() * SUCCESS_MESSAGES.length)];
       const articleUrl = result?.postUrl || result?.editUrl || '#';
 
       // Créer le message de confirmation avec le lien
-      const confirmationText = `${randomMessage}\n\n🔗 [Voir l'article sur WordPress](${articleUrl})`;
+      const confirmationText = `${randomMessage}\n\n🔗 ${articleUrl}`;
 
       // Ajouter directement dans les messages (pas de sendMessageInternal qui déclenche l'IA)
       const { data: savedMsg } = await addMessage(currentConversationId, {
@@ -385,6 +396,15 @@ const ChatInterface = () => {
     }
   };
 
+  // Afficher la galerie WordPress
+  if (showGallery) {
+    return (
+      <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
+        <WordPressGallery onBack={() => setShowGallery(false)} />
+      </div>
+    );
+  }
+
   // Afficher la page d'accueil
   if (showHomePage) {
     return (
@@ -395,6 +415,7 @@ const ChatInterface = () => {
           onNewConversation={startNewConversation}
           onDeleteConversation={deleteConversation}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenGallery={() => setShowGallery(true)}
           isLoading={isLoadingConversations}
         />
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
