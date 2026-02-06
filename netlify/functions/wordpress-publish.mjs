@@ -13,18 +13,17 @@ import sharp from 'sharp';
 // Helper pour encoder en base64 les credentials
 const btoa = (str) => Buffer.from(str).toString('base64');
 
-// Configuration des dimensions pour le carrousel (format 4:3)
+// Configuration des dimensions pour le carrousel
+// On garde le ratio original, on redimensionne juste à une taille max
 const CAROUSEL_CONFIG = {
-  width: 1200,
-  height: 900, // 4:3 ratio
-  fit: 'cover',
-  position: 'center',
+  maxWidth: 1200,
+  maxHeight: 1200,
   quality: 85,
 };
 
 /**
- * Traite une image pour l'adapter au format carrousel
- * Redimensionne en 4:3 (1200x900) avec crop centré
+ * Traite une image pour l'adapter au carrousel
+ * Redimensionne à une taille max SANS changer le ratio (pas de crop)
  */
 async function processImageForCarousel(base64Data, imageName) {
   console.log(`[SHARP] Début traitement image: ${imageName}`);
@@ -39,12 +38,13 @@ async function processImageForCarousel(base64Data, imageName) {
     // Obtenir les métadonnées de l'image originale
     const metadata = await sharp(inputBuffer).metadata();
     console.log(`[SHARP] Image originale: ${metadata.width}x${metadata.height} (${metadata.format})`);
+    console.log(`[SHARP] Ratio original: ${(metadata.width / metadata.height).toFixed(2)}`);
 
-    // Traiter l'image avec sharp
+    // Traiter l'image avec sharp - fit 'inside' garde le ratio original
     const processedBuffer = await sharp(inputBuffer)
-      .resize(CAROUSEL_CONFIG.width, CAROUSEL_CONFIG.height, {
-        fit: CAROUSEL_CONFIG.fit,
-        position: CAROUSEL_CONFIG.position,
+      .resize(CAROUSEL_CONFIG.maxWidth, CAROUSEL_CONFIG.maxHeight, {
+        fit: 'inside', // Redimensionne pour tenir dans les dimensions max, SANS crop
+        withoutEnlargement: true, // Ne pas agrandir si plus petit
       })
       .jpeg({ quality: CAROUSEL_CONFIG.quality })
       .toBuffer();
@@ -52,6 +52,7 @@ async function processImageForCarousel(base64Data, imageName) {
     // Vérifier les dimensions de sortie
     const outputMetadata = await sharp(processedBuffer).metadata();
     console.log(`[SHARP] Image traitée: ${outputMetadata.width}x${outputMetadata.height} (${outputMetadata.format})`);
+    console.log(`[SHARP] Ratio conservé: ${(outputMetadata.width / outputMetadata.height).toFixed(2)}`);
     console.log(`[SHARP] Taille finale: ${processedBuffer.length} bytes (${(processedBuffer.length / 1024).toFixed(1)} KB)`);
 
     return processedBuffer;
@@ -77,8 +78,8 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader, forCarousel 
   let fileName = name;
 
   if (forCarousel) {
-    console.log(`[UPLOAD] Traitement carrousel activé - cible: ${CAROUSEL_CONFIG.width}x${CAROUSEL_CONFIG.height} (4:3)`);
-    // Traiter l'image pour le format carrousel (4:3, 1200x900)
+    console.log(`[UPLOAD] Traitement carrousel activé - max: ${CAROUSEL_CONFIG.maxWidth}x${CAROUSEL_CONFIG.maxHeight} (ratio conservé)`);
+    // Traiter l'image - redimensionne sans crop, garde le ratio original
     buffer = await processImageForCarousel(base64, name);
     // Forcer le nom en .jpg car sharp convertit en JPEG
     fileName = name.replace(/\.[^.]+$/, '.jpg');
