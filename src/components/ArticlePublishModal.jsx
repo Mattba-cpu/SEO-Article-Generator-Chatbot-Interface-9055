@@ -179,11 +179,41 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
 
-  const fileToBase64 = (file) => {
+  /**
+   * Compresse et redimensionne une image avant l'envoi
+   * Max 1920px de large, qualité JPEG 0.8
+   */
+  const compressImage = (file, maxWidth = 1920, quality = 0.8) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          // Calculer les nouvelles dimensions
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+
+          // Créer un canvas pour redimensionner
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convertir en JPEG compressé
+          const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedBase64);
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
       reader.onerror = reject;
     });
   };
@@ -191,28 +221,31 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
   const handlePublish = async () => {
     setIsPublishing(true);
     try {
-      // Préparer les images du slider 1
+      // Préparer les images du slider 1 (compressées)
       const slider1Data = await Promise.all(
         formData.slider1Images.map(async (img) => {
-          const base64 = await fileToBase64(img.file);
+          const base64 = await compressImage(img.file);
+          // Changer l'extension en .jpg puisqu'on convertit en JPEG
+          const name = img.name.replace(/\.[^.]+$/, '.jpg');
           return {
             id: img.id,
-            name: img.name,
+            name,
             base64,
-            type: img.type
+            type: 'image/jpeg'
           };
         })
       );
 
-      // Préparer les images du slider 2
+      // Préparer les images du slider 2 (compressées)
       const slider2Data = await Promise.all(
         formData.slider2Images.map(async (img) => {
-          const base64 = await fileToBase64(img.file);
+          const base64 = await compressImage(img.file);
+          const name = img.name.replace(/\.[^.]+$/, '.jpg');
           return {
             id: img.id,
-            name: img.name,
+            name,
             base64,
-            type: img.type
+            type: 'image/jpeg'
           };
         })
       );
