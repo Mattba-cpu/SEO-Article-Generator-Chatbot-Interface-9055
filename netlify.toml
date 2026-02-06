@@ -4,6 +4,9 @@
 
 [functions]
   directory = "netlify/functions"
+  # Augmenter le timeout pour l'upload d'images (max 26s sur plan gratuit)
+  [functions."wordpress-publish"]
+    external_node_modules = ["node-fetch"]
 
 # SPA routing - redirect all requests to index.html
 [[redirects]]

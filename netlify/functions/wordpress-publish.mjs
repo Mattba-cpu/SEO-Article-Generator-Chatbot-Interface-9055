@@ -163,6 +163,10 @@ export async function handler(event) {
   }
 
   try {
+    // Debug: taille du body reçu
+    const bodySize = event.body ? event.body.length : 0;
+    console.log(`Body reçu: ${bodySize} caractères (${(bodySize / 1024 / 1024).toFixed(2)} MB)`);
+
     // Récupérer les credentials depuis les variables d'environnement
     const wpUrl = process.env.WORDPRESS_URL;
     const wpUser = process.env.WORDPRESS_USER;
@@ -178,8 +182,18 @@ export async function handler(event) {
     }
 
     // Parse le body
-    const payload = JSON.parse(event.body);
+    let payload;
+    try {
+      payload = JSON.parse(event.body);
+    } catch (parseError) {
+      console.error('Erreur parsing JSON:', parseError.message);
+      throw new Error(`Erreur parsing JSON: ${parseError.message}`);
+    }
+
     const { title, metaDescription, template } = payload;
+    console.log(`Titre: ${title}`);
+    console.log(`Slider 1: ${template?.slider1?.length || 0} images`);
+    console.log(`Slider 2: ${template?.slider2?.length || 0} images`);
 
     if (!title) {
       throw new Error('Titre requis');
