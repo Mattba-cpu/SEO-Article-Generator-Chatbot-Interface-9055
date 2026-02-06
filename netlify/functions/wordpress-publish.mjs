@@ -166,7 +166,7 @@ export async function handler(event) {
     }
 
     const payload = JSON.parse(event.body);
-    const { title, metaDescription, slug, template } = payload;
+    const { title, metaDescription, template } = payload;
 
     if (!title) {
       throw new Error('Titre requis');
@@ -211,7 +211,6 @@ export async function handler(event) {
       title,
       content: fullContent,
       status: 'draft',
-      slug: slug || undefined,
       meta: {
         '_et_pb_use_builder': 'on',
         '_et_pb_page_layout': 'et_no_sidebar',
