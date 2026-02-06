@@ -1,7 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import ChatInterface from './components/ChatInterface';
+import HomePage from './components/HomePage';
+import ChatPage from './components/ChatPage';
+import WordPressGallery from './components/WordPressGallery';
 import LoginPage from './components/LoginPage';
 import './App.css';
 
@@ -72,10 +74,28 @@ function AppRoutes() {
         path="/"
         element={
           <ProtectedRoute>
-            <ChatInterface />
+            <HomePage />
           </ProtectedRoute>
         }
       />
+      <Route
+        path="/chat/:conversationId"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/gallery"
+        element={
+          <ProtectedRoute>
+            <WordPressGallery />
+          </ProtectedRoute>
+        }
+      />
+      {/* Redirect unknown routes to home */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

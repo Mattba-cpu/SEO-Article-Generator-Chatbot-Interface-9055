@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
 import SafeIcon from '../common/SafeIcon';
@@ -8,7 +9,8 @@ import { getWordPressPosts, deleteWordPressPost } from '../lib/wordpressService'
 
 const { FiArrowLeft, FiExternalLink, FiEdit, FiTrash2, FiFileText, FiLoader } = FiIcons;
 
-const WordPressGallery = ({ onBack }) => {
+const WordPressGallery = () => {
+  const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
@@ -46,7 +48,7 @@ const WordPressGallery = ({ onBack }) => {
       {/* Header */}
       <header className="h-14 border-b border-gray-800/30 flex items-center px-6 flex-shrink-0">
         <button
-          onClick={onBack}
+          onClick={() => navigate('/')}
           className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
         >
           <SafeIcon icon={FiArrowLeft} />

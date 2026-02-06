@@ -1,28 +1,64 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
 import SafeIcon from '../common/SafeIcon';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import SettingsModal from './SettingsModal';
+import {
+  getConversations,
+  createConversation,
+  deleteConversation as deleteConv
+} from '../lib/conversationService';
 
-const { FiSend, FiMessageSquare, FiTrash2, FiSettings, FiGrid } = FiIcons;
+const { FiSend, FiMessageSquare, FiTrash2, FiSettings, FiGrid, FiLoader } = FiIcons;
 
-const HomePage = ({
-  conversations,
-  onSelectConversation,
-  onNewConversation,
-  onDeleteConversation,
-  onOpenSettings,
-  onOpenGallery,
-  isLoading = false,
-}) => {
+const HomePage = () => {
+  const navigate = useNavigate();
   const [inputValue, setInputValue] = useState('');
+  const [conversations, setConversations] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  const handleSubmit = (e) => {
+  // Charger les conversations
+  const loadConversations = useCallback(async () => {
+    setIsLoading(true);
+    const { data } = await getConversations();
+    setConversations(data || []);
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  // Générer un titre intelligent
+  const generateTitle = (text) => {
+    const cleaned = text
+      .replace(/^(salut|bonjour|hello|hey|coucou)[,.\s]*/i, '')
+      .replace(/^(je veux|je voudrais|il faut|peux-tu|est-ce que tu peux)[,.\s]*/i, '')
+      .replace(/^(me |m'|nous )/i, '')
+      .trim();
+
+    const words = cleaned.split(' ').slice(0, 8).join(' ');
+
+    if (words.length > 50) {
+      return words.slice(0, 50) + '...';
+    }
+    return words || 'Nouvelle discussion';
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (inputValue.trim()) {
-      onNewConversation(inputValue.trim());
-      setInputValue('');
+    if (!inputValue.trim()) return;
+
+    const title = generateTitle(inputValue.trim());
+    const { data: newConv, error } = await createConversation(title);
+
+    if (!error && newConv) {
+      // Naviguer vers la conversation avec le message initial en state
+      navigate(`/chat/${newConv.id}`, { state: { initialMessage: inputValue.trim() } });
     }
   };
 
@@ -30,6 +66,14 @@ const HomePage = ({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
+    }
+  };
+
+  const handleDeleteConversation = async (id, e) => {
+    e.stopPropagation();
+    const { error } = await deleteConv(id);
+    if (!error) {
+      setConversations(prev => prev.filter(c => c.id !== id));
     }
   };
 
@@ -49,14 +93,14 @@ const HomePage = ({
         />
         <div className="flex items-center gap-2">
           <button
-            onClick={onOpenGallery}
+            onClick={() => navigate('/gallery')}
             className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a1a] rounded-lg transition-all"
             title="Articles WordPress"
           >
             <SafeIcon icon={FiGrid} className="text-lg" />
           </button>
           <button
-            onClick={onOpenSettings}
+            onClick={() => setIsSettingsOpen(true)}
             className="p-2 text-gray-400 hover:text-white hover:bg-[#1a1a1a] rounded-lg transition-all"
             title="Paramètres"
           >
@@ -106,51 +150,56 @@ const HomePage = ({
 
           {/* Conversations list */}
           <div className="space-y-1">
-            <AnimatePresence initial={false}>
-              {conversations.length === 0 ? (
-                <div className="text-center py-16">
-                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-olive-900/30 border border-olive-500/20 flex items-center justify-center">
-                    <SafeIcon icon={FiMessageSquare} className="text-2xl text-olive-400" />
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <SafeIcon icon={FiLoader} className="text-2xl text-gray-500 animate-spin" />
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+                {conversations.length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-olive-900/30 border border-olive-500/20 flex items-center justify-center">
+                      <SafeIcon icon={FiMessageSquare} className="text-2xl text-olive-400" />
+                    </div>
+                    <p className="text-gray-400 text-sm">Aucune conversation</p>
+                    <p className="text-gray-500 text-xs mt-1">Décrivez votre prestation ci-dessus pour commencer</p>
                   </div>
-                  <p className="text-gray-400 text-sm">Aucune conversation</p>
-                  <p className="text-gray-500 text-xs mt-1">Décrivez votre prestation ci-dessus pour commencer</p>
-                </div>
-              ) : (
-                conversations.map((conv) => (
-                  <motion.div
-                    key={conv.id}
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -5 }}
-                    className="group relative"
-                  >
-                    <button
-                      onClick={() => onSelectConversation(conv.id)}
-                      className="w-full text-left px-4 py-4 rounded-lg hover:bg-[#1a1a1a] transition-colors border-l-2 border-transparent hover:border-olive-500"
+                ) : (
+                  conversations.map((conv) => (
+                    <motion.div
+                      key={conv.id}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -5 }}
+                      className="group relative"
                     >
-                      <p className="text-sm text-gray-200 font-medium truncate pr-8">
-                        {conv.title || 'Nouvelle discussion'}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Dernier message {formatRelativeTime(conv.last_update)}
-                      </p>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteConversation(conv.id);
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-olive-400 hover:bg-[#1a1a1a] rounded-lg transition-all"
-                    >
-                      <SafeIcon icon={FiTrash2} className="text-sm" />
-                    </button>
-                  </motion.div>
-                ))
-              )}
-            </AnimatePresence>
+                      <button
+                        onClick={() => navigate(`/chat/${conv.id}`)}
+                        className="w-full text-left px-4 py-4 rounded-lg hover:bg-[#1a1a1a] transition-colors border-l-2 border-transparent hover:border-olive-500"
+                      >
+                        <p className="text-sm text-gray-200 font-medium truncate pr-8">
+                          {conv.title || 'Nouvelle discussion'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Dernier message {formatRelativeTime(conv.last_update)}
+                        </p>
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteConversation(conv.id, e)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-2 text-gray-500 hover:text-olive-400 hover:bg-[#1a1a1a] rounded-lg transition-all"
+                      >
+                        <SafeIcon icon={FiTrash2} className="text-sm" />
+                      </button>
+                    </motion.div>
+                  ))
+                )}
+              </AnimatePresence>
+            )}
           </div>
         </div>
       </div>
+
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </div>
   );
 };

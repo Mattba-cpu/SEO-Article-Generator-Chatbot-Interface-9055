@@ -1,15 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
 import TypingIndicator from './TypingIndicator';
 import Header from './Header';
 import Sidebar from './Sidebar';
-import HomePage from './HomePage';
 import SettingsModal from './SettingsModal';
 import ArticlePublishModal, { parseArticleFromMessage } from './ArticlePublishModal';
-import WordPressGallery from './WordPressGallery';
-import { useAuth } from '../contexts/AuthContext';
 import { sendChatMessage, extractWebhookResponse, publishToWordPress } from '../lib/api';
 import {
   getConversations,
@@ -31,73 +29,42 @@ const SUCCESS_MESSAGES = [
   "Voilà, c'est en ligne ! L'article t'attend sur WordPress."
 ];
 
-const ChatInterface = () => {
-  const { user } = useAuth();
-  const [showHomePage, setShowHomePage] = useState(true);
-  const [showGallery, setShowGallery] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+const ChatPage = () => {
+  const { conversationId } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const initialMessageSent = useRef(false);
 
   const [conversations, setConversations] = useState([]);
-  const [currentConversationId, setCurrentConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [waitingForAudioResponse, setWaitingForAudioResponse] = useState(false);
   const messagesEndRef = useRef(null);
-  const pendingConversationRef = useRef(null); // Track which conversation is waiting for response
+  const pendingConversationRef = useRef(null);
 
-  // État pour le modal de publication WordPress
+  // Modal de publication WordPress
   const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [articleToPublish, setArticleToPublish] = useState(null);
 
-  // Générer un titre intelligent basé sur le premier message
-  const generateTitle = (text) => {
-    const cleaned = text
-      .replace(/^(salut|bonjour|hello|hey|coucou)[,.\s]*/i, '')
-      .replace(/^(je veux|je voudrais|il faut|peux-tu|est-ce que tu peux)[,.\s]*/i, '')
-      .replace(/^(me |m'|nous )/i, '')
-      .trim();
-
-    const words = cleaned.split(' ').slice(0, 8).join(' ');
-
-    if (words.length > 50) {
-      return words.slice(0, 50) + '...';
-    }
-    return words || 'Nouvelle discussion';
-  };
-
-  // Charger les conversations de l'utilisateur
-  const loadConversations = useCallback(async () => {
-    if (!user) return;
-
-    setIsLoadingConversations(true);
-    const { data, error } = await getConversations();
-
-    if (!error) {
-      setConversations(data);
-    }
-    setIsLoadingConversations(false);
-  }, [user]);
-
-  // Charger les conversations au montage
+  // Charger les conversations pour la sidebar
   useEffect(() => {
+    const loadConversations = async () => {
+      const { data } = await getConversations();
+      setConversations(data || []);
+    };
     loadConversations();
-  }, [loadConversations]);
+  }, []);
 
-  // Charger les messages quand on sélectionne une conversation
+  // Charger les messages de la conversation
   useEffect(() => {
     const loadMessages = async () => {
-      if (!currentConversationId) {
-        setMessages([]);
-        return;
-      }
+      if (!conversationId) return;
 
-      const { data, error } = await getMessages(currentConversationId);
-
+      const { data, error } = await getMessages(conversationId);
       if (!error) {
-        // Transformer les données pour le format attendu par les composants
         const formattedMessages = data.map(msg => ({
           id: msg.id,
           text: msg.text,
@@ -109,62 +76,47 @@ const ChatInterface = () => {
         setMessages(formattedMessages);
       }
     };
-
     loadMessages();
-  }, [currentConversationId]);
+  }, [conversationId]);
+
+  // Envoyer le message initial si présent (nouvelle conversation depuis HomePage)
+  useEffect(() => {
+    const initialMessage = location.state?.initialMessage;
+    if (initialMessage && conversationId && !initialMessageSent.current) {
+      initialMessageSent.current = true;
+      // Petit délai pour s'assurer que le composant est monté
+      setTimeout(() => {
+        sendMessageInternal(initialMessage);
+      }, 100);
+    }
+  }, [conversationId, location.state]);
 
   // Scroll automatique
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  // Créer une nouvelle conversation avec un message initial
-  const startNewConversation = async (initialMessage) => {
-    const title = generateTitle(initialMessage);
-    const { data: newConv, error } = await createConversation(title);
-
-    if (error || !newConv) {
-      console.error('Erreur création conversation:', error);
-      return;
-    }
-
-    // Ajouter à la liste locale
-    setConversations(prev => [newConv, ...prev]);
-    setCurrentConversationId(newConv.id);
-    setMessages([]);
-    setShowHomePage(false);
-
-    // Envoyer le message initial
-    setTimeout(() => {
-      sendMessageInternal(initialMessage, newConv.id);
-    }, 100);
-  };
-
-  // Sélectionner une conversation existante
   const selectConversation = (id) => {
-    if (id === currentConversationId) return;
-    // Reset loading state when switching conversations
+    if (id === conversationId) return;
     setIsLoading(false);
     setWaitingForAudioResponse(false);
-    setCurrentConversationId(id);
-    setShowHomePage(false);
+    navigate(`/chat/${id}`);
   };
 
-  // Retour à la page d'accueil
-  const goToHomePage = () => {
-    setShowHomePage(true);
-    setCurrentConversationId(null);
-    setMessages([]);
+  const startNewConversation = async () => {
+    const { data: newConv, error } = await createConversation('Nouvelle discussion');
+    if (!error && newConv) {
+      setConversations(prev => [newConv, ...prev]);
+      navigate(`/chat/${newConv.id}`);
+    }
   };
 
-  // Supprimer une conversation
   const deleteConversation = async (id) => {
     const { error } = await deleteConv(id);
-
     if (!error) {
       setConversations(prev => prev.filter(c => c.id !== id));
-      if (currentConversationId === id) {
-        goToHomePage();
+      if (conversationId === id) {
+        navigate('/');
       }
     }
   };
@@ -172,23 +124,19 @@ const ChatInterface = () => {
   const handleWebhookResponse = async (responseData) => {
     if (!waitingForAudioResponse && !isLoading) return;
 
-    const targetConversationId = pendingConversationRef.current || currentConversationId;
-
     setWaitingForAudioResponse(false);
     setIsLoading(false);
     pendingConversationRef.current = null;
 
     const aiResponse = extractWebhookResponse(responseData);
 
-    // Sauvegarder en BDD
-    const { data: savedMsg } = await addMessage(targetConversationId, {
+    const { data: savedMsg } = await addMessage(conversationId, {
       sender: 'ai',
       text: aiResponse,
       type: 'text'
     });
 
-    // Only update UI if still on the same conversation
-    if (savedMsg && currentConversationId === targetConversationId) {
+    if (savedMsg) {
       setMessages(prev => [
         ...prev,
         {
@@ -203,8 +151,7 @@ const ChatInterface = () => {
     }
   };
 
-  const sendMessageInternal = async (text, conversationId) => {
-    // Sauvegarder le message utilisateur en BDD
+  const sendMessageInternal = async (text) => {
     const { data: userMsg } = await addMessage(conversationId, {
       sender: 'user',
       text,
@@ -232,15 +179,13 @@ const ChatInterface = () => {
       const response = await sendChatMessage(text, conversationId);
       const aiResponse = extractWebhookResponse(response);
 
-      // Sauvegarder la réponse IA en BDD
       const { data: aiMsg } = await addMessage(conversationId, {
         sender: 'ai',
         text: aiResponse,
         type: 'text'
       });
 
-      // Only update UI if still on the same conversation
-      if (aiMsg && currentConversationId === conversationId) {
+      if (aiMsg) {
         setMessages(prev => [
           ...prev,
           {
@@ -254,7 +199,7 @@ const ChatInterface = () => {
         ]);
       }
 
-      // Mettre à jour la liste des conversations (last_update)
+      // Mettre à jour la liste des conversations
       setConversations(prev =>
         prev.map(c =>
           c.id === conversationId
@@ -266,7 +211,6 @@ const ChatInterface = () => {
     } catch (error) {
       console.error('Error:', error);
     } finally {
-      // Only reset loading if this was the pending conversation
       if (pendingConversationRef.current === conversationId) {
         setIsLoading(false);
         pendingConversationRef.current = null;
@@ -282,8 +226,7 @@ const ChatInterface = () => {
         handleWebhookResponse(messageContent.content);
         return;
       } else if (messageContent.type === 'audio') {
-        // Pour l'audio, on sauvegarde aussi en BDD
-        const { data: audioMsg } = await addMessage(currentConversationId, {
+        const { data: audioMsg } = await addMessage(conversationId, {
           sender: 'user',
           type: 'audio',
           duration: messageContent.duration || 0
@@ -295,7 +238,7 @@ const ChatInterface = () => {
             {
               id: audioMsg.id,
               type: 'audio',
-              audioBlob: messageContent.content, // Blob local pour lecture
+              audioBlob: messageContent.content,
               duration: messageContent.duration || 0,
               sender: 'user',
               timestamp: audioMsg.created_at
@@ -306,7 +249,7 @@ const ChatInterface = () => {
         if (messageContent.expectResponse) {
           setIsLoading(true);
           setWaitingForAudioResponse(true);
-          pendingConversationRef.current = currentConversationId;
+          pendingConversationRef.current = conversationId;
         }
         return;
       }
@@ -315,7 +258,7 @@ const ChatInterface = () => {
     const text = typeof messageContent === 'string' ? messageContent.trim() : '';
     if (!text) return;
 
-    await sendMessageInternal(text, currentConversationId);
+    await sendMessageInternal(text);
   };
 
   const downloadPDF = () => {
@@ -334,10 +277,9 @@ const ChatInterface = () => {
         y = 20;
       }
     });
-    doc.save(`chat-${currentConversationId?.slice(0, 8) || 'export'}.pdf`);
+    doc.save(`chat-${conversationId?.slice(0, 8) || 'export'}.pdf`);
   };
 
-  // Ouvrir le modal de publication avec l'article parsé
   const handleOpenPublishModal = (messageText) => {
     const parsed = parseArticleFromMessage(messageText);
     if (parsed) {
@@ -346,16 +288,14 @@ const ChatInterface = () => {
     }
   };
 
-  // Publier l'article sur WordPress
   const handlePublishToWordPress = async (articleData) => {
     try {
       const result = await publishToWordPress(articleData);
 
-      // Fermer le modal immédiatement
       setIsPublishModalOpen(false);
       setArticleToPublish(null);
 
-      // Sauvegarder dans la galerie Supabase
+      // Sauvegarder dans la galerie
       await saveWordPressPost({
         title: articleData.title,
         postUrl: result?.postUrl || '',
@@ -363,15 +303,11 @@ const ChatInterface = () => {
         postId: result?.postId || null
       });
 
-      // Choisir un message aléatoire
       const randomMessage = SUCCESS_MESSAGES[Math.floor(Math.random() * SUCCESS_MESSAGES.length)];
       const articleUrl = result?.postUrl || result?.editUrl || '#';
-
-      // Créer le message de confirmation avec le lien
       const confirmationText = `${randomMessage}\n\n🔗 ${articleUrl}`;
 
-      // Ajouter directement dans les messages (pas de sendMessageInternal qui déclenche l'IA)
-      const { data: savedMsg } = await addMessage(currentConversationId, {
+      const { data: savedMsg } = await addMessage(conversationId, {
         sender: 'ai',
         text: confirmationText,
         type: 'text'
@@ -396,49 +332,25 @@ const ChatInterface = () => {
     }
   };
 
-  // Afficher la galerie WordPress
-  if (showGallery) {
-    return (
-      <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-        <WordPressGallery onBack={() => setShowGallery(false)} />
-      </div>
-    );
-  }
-
-  // Afficher la page d'accueil
-  if (showHomePage) {
-    return (
-      <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-        <HomePage
-          conversations={conversations}
-          onSelectConversation={selectConversation}
-          onNewConversation={startNewConversation}
-          onDeleteConversation={deleteConversation}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenGallery={() => setShowGallery(true)}
-          isLoading={isLoadingConversations}
-        />
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-      </div>
-    );
-  }
-
-  // Afficher la vue chat
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
       <Sidebar
         isOpen={isSidebarOpen}
         conversations={conversations}
-        currentSessionId={currentConversationId}
+        currentSessionId={conversationId}
         onSelectConversation={selectConversation}
-        onNewChat={goToHomePage}
+        onNewChat={startNewConversation}
         onDeleteConversation={deleteConversation}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <Header onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} sidebarOpen={isSidebarOpen} onGoHome={goToHomePage} />
+        <Header
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          sidebarOpen={isSidebarOpen}
+          onGoHome={() => navigate('/')}
+        />
 
         <div className="flex-1 overflow-y-auto bg-[#0a0a0a]">
           <div className="max-w-4xl mx-auto p-4">
@@ -457,10 +369,15 @@ const ChatInterface = () => {
           </div>
         </div>
 
-        <InputArea value={inputValue} onChange={setInputValue} onSend={sendMessage} isLoading={isLoading} sessionId={currentConversationId} />
+        <InputArea
+          value={inputValue}
+          onChange={setInputValue}
+          onSend={sendMessage}
+          isLoading={isLoading}
+          sessionId={conversationId}
+        />
       </div>
 
-      {/* Modal de publication WordPress */}
       <ArticlePublishModal
         isOpen={isPublishModalOpen}
         onClose={() => {
@@ -474,4 +391,4 @@ const ChatInterface = () => {
   );
 };
 
-export default ChatInterface;
+export default ChatPage;
