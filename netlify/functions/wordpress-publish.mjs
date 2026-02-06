@@ -97,7 +97,9 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
     const slider1Children = slider1Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider1Children}[/dipi_image_gallery]`;
+    // Attributs pour un affichage correct du slider
+    const sliderAttrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" ${moduleAttrs}`;
+    imageModule1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${sliderAttrs}]${slider1Children}[/dipi_image_gallery]`;
   } else {
     // Pas d'image - module vide
     imageModule1 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
@@ -124,7 +126,9 @@ function generateDiviContent(template, slider1Urls, slider2Urls) {
     const slider2Children = slider2Urls.map(url =>
       `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
     ).join('');
-    imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider2Children}[/dipi_image_gallery]`;
+    // Attributs pour un affichage correct du slider
+    const slider2Attrs = `gallery_style="slider" gallery_image_size="full" slider_effect="slide" show_arrows="on" show_dots="on" slider_loop="on" ${moduleAttrs}`;
+    imageModule2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${slider2Attrs}]${slider2Children}[/dipi_image_gallery]`;
   } else {
     // Pas d'image - module vide
     imageModule2 = `[et_pb_image src="" alt="" ${moduleAttrs}][/et_pb_image]`;
