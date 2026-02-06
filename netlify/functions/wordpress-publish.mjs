@@ -8,26 +8,72 @@
  * - Section 2 (vide)
  */
 
+import sharp from 'sharp';
+
 // Helper pour encoder en base64 les credentials
 const btoa = (str) => Buffer.from(str).toString('base64');
 
+// Configuration des dimensions pour le carrousel (format 16:9)
+const CAROUSEL_CONFIG = {
+  width: 1200,
+  height: 675, // 16:9 ratio
+  fit: 'cover',
+  position: 'center',
+  quality: 85,
+};
+
+/**
+ * Traite une image pour l'adapter au format carrousel
+ * Redimensionne en 16:9 (1200x675) avec crop centré
+ */
+async function processImageForCarousel(base64Data) {
+  // Retirer le préfixe data:image/...;base64, si présent
+  const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+  const inputBuffer = Buffer.from(cleanBase64, 'base64');
+
+  // Traiter l'image avec sharp
+  const processedBuffer = await sharp(inputBuffer)
+    .resize(CAROUSEL_CONFIG.width, CAROUSEL_CONFIG.height, {
+      fit: CAROUSEL_CONFIG.fit,
+      position: CAROUSEL_CONFIG.position,
+    })
+    .jpeg({ quality: CAROUSEL_CONFIG.quality })
+    .toBuffer();
+
+  return processedBuffer;
+}
+
 /**
  * Upload une image vers la médiathèque WordPress
+ * L'image est d'abord traitée pour être au format carrousel (16:9)
  */
-async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
-  const { base64, name, type } = imageData;
+async function uploadImageToWordPress(imageData, wpUrl, authHeader, forCarousel = true) {
+  const { base64, name } = imageData;
 
-  // Convertir base64 en buffer
-  const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
-  const buffer = Buffer.from(base64Data, 'base64');
+  let buffer;
+  let contentType = 'image/jpeg';
+  let fileName = name;
+
+  if (forCarousel) {
+    // Traiter l'image pour le format carrousel (16:9, 1200x675)
+    buffer = await processImageForCarousel(base64);
+    // Forcer le nom en .jpg car sharp convertit en JPEG
+    fileName = name.replace(/\.[^.]+$/, '.jpg');
+    console.log(`Image traitée pour carrousel: ${fileName} (${CAROUSEL_CONFIG.width}x${CAROUSEL_CONFIG.height})`);
+  } else {
+    // Garder l'image originale
+    const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
+    buffer = Buffer.from(base64Data, 'base64');
+    contentType = imageData.type || 'image/jpeg';
+  }
 
   // Upload vers WordPress Media Library
   const response = await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media`, {
     method: 'POST',
     headers: {
       'Authorization': authHeader,
-      'Content-Type': type,
-      'Content-Disposition': `attachment; filename="${name}"`,
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${fileName}"`,
     },
     body: buffer,
   });
