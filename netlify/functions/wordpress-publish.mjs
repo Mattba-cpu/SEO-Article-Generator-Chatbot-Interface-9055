@@ -1,11 +1,11 @@
 /**
  * Netlify Function pour publier un article sur WordPress avec Divi Builder
- *
- * Cette fonction :
- * 1. Reçoit les données d'article du frontend
- * 2. Upload les images vers la médiathèque WordPress
- * 3. Génère le contenu au format Divi Builder
- * 4. Crée l'article en brouillon
+ * Structure fixe Template O.Live :
+ * - Section 1
+ *   - Row 1 : Texte (intro H1 + paragraphe)
+ *   - Row 2 : Pixel Image Slider 1 + Texte 1 + Vidéo + Texte 2 + Pixel Image Slider 2
+ *   - Row 3 : Texte CTA + Bouton
+ * - Section 2 (vide)
  */
 
 // Helper pour encoder en base64 les credentials
@@ -15,19 +15,19 @@ const btoa = (str) => Buffer.from(str).toString('base64');
  * Upload une image vers la médiathèque WordPress
  */
 async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
-  const { base64, filename, mimeType, alt } = imageData;
+  const { base64, name, type } = imageData;
 
   // Convertir base64 en buffer
   const base64Data = base64.replace(/^data:[^;]+;base64,/, '');
   const buffer = Buffer.from(base64Data, 'base64');
 
-  // Upload vers WordPress Media Library (rest_route pour compatibilité serveur)
+  // Upload vers WordPress Media Library
   const response = await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media`, {
     method: 'POST',
     headers: {
       'Authorization': authHeader,
-      'Content-Type': mimeType,
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Type': type,
+      'Content-Disposition': `attachment; filename="${name}"`,
     },
     body: buffer,
   });
@@ -39,141 +39,86 @@ async function uploadImageToWordPress(imageData, wpUrl, authHeader) {
 
   const mediaData = await response.json();
 
-  // Mettre à jour l'alt text si fourni
-  if (alt) {
-    await fetch(`${wpUrl}/index.php?rest_route=/wp/v2/media/${mediaData.id}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ alt_text: alt }),
-    });
-  }
-
   return {
     id: mediaData.id,
     url: mediaData.source_url,
-    alt: alt || '',
   };
 }
 
 /**
  * Génère le contenu Divi complet (format Template O.Live EXACT)
- *
- * Structure FIXE (toujours identique) :
- * - Section 1
- *   - Row 1 : Texte (intro)
- *   - Row 2 : Pixel Image Slider + Texte + Vidéo + Texte + Pixel Image Slider
- *   - Row 3 : Texte + Bouton
- * - Section 2 (vide)
  */
-function generateDiviContent(blocks, imageUrls) {
+function generateDiviContent(template, slider1Urls, slider2Urls) {
   const moduleAttrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
-  // Extraire le contenu des blocs pour remplir la template
-  let introHtml = '';
-  let texte1Html = '';
-  let texte2Html = '';
-  let videoUrl = '';
-  const imageUrlsList = Object.values(imageUrls);
+  // Extraire les données du template
+  const { intro, texte1, videoUrl, texte2 } = template;
 
-  // Parcourir les blocs et extraire le contenu
-  let textBlockIndex = 0;
-  blocks.forEach((block) => {
-    if (block.type === 'heading') {
-      const content = block.text || '';
-      const level = block.level || 2;
-      let html;
-      if (level === 1) {
-        html = `<h1><strong>${content}</strong></h1>`;
-      } else if (level === 3) {
-        html = `<h3><strong>${content}</strong></h3>`;
-      } else if (level === 4) {
-        html = `<h4><em><span style="font-size: medium;">${content}</span></em></h4>`;
-      } else {
-        html = `<h${level}><strong>${content}</strong></h${level}>`;
-      }
+  // Construire le HTML de l'intro
+  const introHtml = intro
+    ? `<p>${intro}</p>`
+    : '<p>&nbsp;</p>';
 
-      if (!introHtml) {
-        introHtml += html;
-      } else if (!texte1Html || textBlockIndex === 0) {
-        texte1Html += html;
-        textBlockIndex = 1;
-      } else {
-        texte2Html += html;
-      }
-    } else if (block.type === 'paragraph') {
-      const content = block.text || '';
-      const html = `<p>${content}</p>`;
+  // Construire le HTML du texte 1
+  const texte1Html = texte1
+    ? texte1.split('\n').filter(l => l.trim()).map(p => `<p>${p}</p>`).join('\n')
+    : '<p>&nbsp;</p>';
 
-      if (!introHtml || introHtml.includes('<h1>')) {
-        introHtml += html;
-      } else if (textBlockIndex === 0 || !texte1Html) {
-        texte1Html += html;
-        textBlockIndex = 1;
-      } else {
-        texte2Html += html;
-      }
-    } else if (block.type === 'list') {
-      const tag = block.listType === 'ordered' ? 'ol' : 'ul';
-      const content = block.text || '';
-      const html = `<${tag}>${content}</${tag}>`;
-
-      if (textBlockIndex === 0 || !texte1Html) {
-        texte1Html += html;
-        textBlockIndex = 1;
-      } else {
-        texte2Html += html;
-      }
-    } else if (block.type === 'video') {
-      videoUrl = block.src || block.url || '';
-    }
-  });
-
-  // Si pas de contenu, mettre des placeholders
-  if (!introHtml) introHtml = '<h1><strong>Titre de l\'article</strong></h1><p>Introduction de l\'article.</p>';
-  if (!texte1Html) texte1Html = '<p>&nbsp;</p>';
-  if (!texte2Html) texte2Html = '<p>&nbsp;</p>';
-
-  // URLs des images (ou vide si pas d'images)
-  const image1Url = imageUrlsList[0] || '';
-  const image2Url = imageUrlsList[1] || imageUrlsList[0] || '';
+  // Construire le HTML du texte 2
+  const texte2Html = texte2
+    ? texte2.split('\n').filter(l => l.trim()).map(p => `<p>${p}</p>`).join('\n')
+    : '<p>&nbsp;</p>';
 
   // === STRUCTURE FIXE TEMPLATE O.LIVE ===
 
   // Section 1
   const section1Attrs = 'fb_built="1" _builder_version="4.16" global_colors_info="{}"';
 
-  // Row 1 : Texte intro
+  // Row 1 : Texte intro (sera combiné avec le titre dans postData)
   const row1Attrs = '_builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"';
   const col1Attrs = 'type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"';
   const text1Attrs = '_builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"';
 
   const row1 = `[et_pb_row ${row1Attrs}][et_pb_column ${col1Attrs}][et_pb_text ${text1Attrs}]${introHtml}[/et_pb_text][/et_pb_column][/et_pb_row]`;
 
-  // Row 2 : Pixel Image Slider + Texte + Vidéo + Texte + Pixel Image Slider
+  // Row 2 : Contenu principal
   const row2Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
   const col2Attrs = 'type="4_4" _builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
-  // Module 1: Pixel Image Slider
-  const pixelSlider1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}][dipi_image_gallery_child item_image="${image1Url}" ${moduleAttrs}][/dipi_image_gallery_child][/dipi_image_gallery]`;
+  // Module 1: Pixel Image Slider 1 (carrousel)
+  let pixelSlider1 = '';
+  if (slider1Urls.length > 0) {
+    const slider1Children = slider1Urls.map(url =>
+      `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
+    ).join('');
+    pixelSlider1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}]${slider1Children}[/dipi_image_gallery]`;
+  } else {
+    pixelSlider1 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs}][/dipi_image_gallery]`;
+  }
 
-  // Module 2: Texte
+  // Module 2: Texte 1
   const texteModule1 = `[et_pb_text ${moduleAttrs}]${texte1Html}[/et_pb_text]`;
 
   // Module 3: Vidéo
-  const videoModule = `[et_pb_video src="${videoUrl}" admin_label="Vidéo" ${moduleAttrs}][/et_pb_video]`;
+  const videoModule = `[et_pb_video src="${videoUrl || ''}" admin_label="Vidéo" ${moduleAttrs}][/et_pb_video]`;
 
-  // Module 4: Texte
+  // Module 4: Texte 2
   const texteModule2 = `[et_pb_text ${moduleAttrs}]${texte2Html}[/et_pb_text]`;
 
-  // Module 5: Pixel Image Slider
-  const pixelSlider2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center" height="734px"][dipi_image_gallery_child item_image="${image2Url}" ${moduleAttrs}][/dipi_image_gallery_child][/dipi_image_gallery]`;
+  // Module 5: Pixel Image Slider 2 (carrousel)
+  let pixelSlider2 = '';
+  if (slider2Urls.length > 0) {
+    const slider2Children = slider2Urls.map(url =>
+      `[dipi_image_gallery_child item_image="${url}" ${moduleAttrs}][/dipi_image_gallery_child]`
+    ).join('');
+    pixelSlider2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center" height="734px"]${slider2Children}[/dipi_image_gallery]`;
+  } else {
+    pixelSlider2 = `[dipi_image_gallery admin_label="Pixel Image Slider" ${moduleAttrs} width="100%" max_width="67%" module_alignment="center" height="734px"][/dipi_image_gallery]`;
+  }
 
   const row2 = `[et_pb_row ${row2Attrs}][et_pb_column ${col2Attrs}]${pixelSlider1}${texteModule1}${videoModule}${texteModule2}${pixelSlider2}[/et_pb_column][/et_pb_row]`;
 
-  // Row 3 : Texte CTA + Bouton
+  // Row 3 : CTA (Texte + Bouton)
   const row3Attrs = '_builder_version="4.27.4" _module_preset="default" global_colors_info="{}"';
 
   const ctaText = `[et_pb_text ${moduleAttrs}]<h3><span style="font-size: 14px; color: #666666;">Prêt à donner une nouvelle dimension à votre projet ?</span></h3>
@@ -223,65 +168,73 @@ export async function handler(event) {
     const wpUser = process.env.WORDPRESS_USER;
     const wpPassword = process.env.WORDPRESS_APP_PASSWORD;
 
-    // Debug: voir quelles variables sont définies
     const missing = [];
     if (!wpUrl) missing.push('WORDPRESS_URL');
     if (!wpUser) missing.push('WORDPRESS_USER');
     if (!wpPassword) missing.push('WORDPRESS_APP_PASSWORD');
 
     if (missing.length > 0) {
-      console.log('Variables présentes:', {
-        WORDPRESS_URL: !!wpUrl,
-        WORDPRESS_USER: !!wpUser,
-        WORDPRESS_APP_PASSWORD: !!wpPassword
-      });
       throw new Error(`Variables WordPress manquantes: ${missing.join(', ')}`);
     }
 
     // Parse le body
     const payload = JSON.parse(event.body);
-    const { title, metaDescription, content, images } = payload;
+    const { title, metaDescription, template } = payload;
 
-    if (!title || !content) {
-      throw new Error('Données manquantes: title et content requis');
+    if (!title) {
+      throw new Error('Titre requis');
     }
 
     // Authentification WordPress (Basic Auth avec Application Password)
     const authHeader = `Basic ${btoa(`${wpUser}:${wpPassword}`)}`;
 
-    // === 1. Upload des images vers WordPress ===
-    const imageUrls = {};
-
-    if (images && Object.keys(images).length > 0) {
-      console.log(`Upload de ${Object.keys(images).length} image(s)...`);
-
-      for (const [key, imageData] of Object.entries(images)) {
+    // === 1. Upload des images du Slider 1 ===
+    const slider1Urls = [];
+    if (template?.slider1 && template.slider1.length > 0) {
+      console.log(`Upload de ${template.slider1.length} image(s) pour Slider 1...`);
+      for (const imageData of template.slider1) {
         try {
           const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
-          imageUrls[key] = uploaded.url;
-          console.log(`Image ${key} uploadée: ${uploaded.url}`);
+          slider1Urls.push(uploaded.url);
+          console.log(`Image uploadée: ${uploaded.url}`);
         } catch (error) {
-          console.error(`Erreur upload ${key}:`, error.message);
-          // On continue même si une image échoue
+          console.error(`Erreur upload:`, error.message);
         }
       }
     }
 
-    // === 2. Générer le contenu Divi ===
-    const diviContent = generateDiviContent(content, imageUrls);
+    // === 2. Upload des images du Slider 2 ===
+    const slider2Urls = [];
+    if (template?.slider2 && template.slider2.length > 0) {
+      console.log(`Upload de ${template.slider2.length} image(s) pour Slider 2...`);
+      for (const imageData of template.slider2) {
+        try {
+          const uploaded = await uploadImageToWordPress(imageData, wpUrl, authHeader);
+          slider2Urls.push(uploaded.url);
+          console.log(`Image uploadée: ${uploaded.url}`);
+        } catch (error) {
+          console.error(`Erreur upload:`, error.message);
+        }
+      }
+    }
+
+    // === 3. Générer le contenu Divi ===
+    const diviContent = generateDiviContent(template || {}, slider1Urls, slider2Urls);
     console.log('Contenu Divi généré');
 
-    // === 3. Créer l'article WordPress ===
+    // === 4. Créer l'article WordPress ===
+    // Le titre H1 est ajouté au début du contenu Divi
+    const fullContent = `[et_pb_section fb_built="1" _builder_version="4.16" global_colors_info="{}"][et_pb_row _builder_version="4.16" background_size="initial" background_position="top_left" background_repeat="repeat" global_colors_info="{}"][et_pb_column type="4_4" _builder_version="4.16" custom_padding="|||" global_colors_info="{}" custom_padding__hover="|||"][et_pb_text _builder_version="4.27.4" background_size="initial" background_position="top_left" background_repeat="repeat" custom_padding="2px|||||" global_colors_info="{}"]<h1><strong>${title}</strong></h1>
+<p>${template?.intro || ''}</p>[/et_pb_text][/et_pb_column][/et_pb_row]${diviContent.replace(/^\[et_pb_section[^\]]*\]\[et_pb_row[^\]]*\]\[et_pb_column[^\]]*\]\[et_pb_text[^\]]*\][^[]*\[\/et_pb_text\]\[\/et_pb_column\]\[\/et_pb_row\]/, '')}`;
+
     const postData = {
       title: title,
-      content: diviContent,
-      status: 'draft', // Publié en brouillon par sécurité
+      content: fullContent,
+      status: 'draft',
       meta: {
-        // Meta Divi pour activer le Builder
         '_et_pb_use_builder': 'on',
         '_et_pb_page_layout': 'et_no_sidebar',
         '_et_pb_post_hide_nav': 'default',
-        // Meta Yoast SEO
         '_yoast_wpseo_metadesc': metaDescription || '',
       },
     };
@@ -303,7 +256,7 @@ export async function handler(event) {
     const post = await postResponse.json();
     console.log(`Article créé: ${post.link}`);
 
-    // === 4. Retourner le résultat ===
+    // === 5. Retourner le résultat ===
     return {
       statusCode: 200,
       headers,
@@ -312,7 +265,7 @@ export async function handler(event) {
         postId: post.id,
         postUrl: post.link,
         editUrl: `${wpUrl}/wp-admin/post.php?post=${post.id}&action=edit`,
-        imagesUploaded: Object.keys(imageUrls).length,
+        imagesUploaded: slider1Urls.length + slider2Urls.length,
         message: `Article "${title}" créé en brouillon`,
       }),
     };

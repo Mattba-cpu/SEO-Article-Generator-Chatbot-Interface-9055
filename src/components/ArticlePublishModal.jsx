@@ -1,9 +1,9 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as FiIcons from 'react-icons/fi';
 import SafeIcon from '../common/SafeIcon';
 
-const { FiX, FiUpload, FiImage, FiTrash2, FiSend, FiLoader, FiPlus, FiEye, FiEdit3 } = FiIcons;
+const { FiX, FiUpload, FiImage, FiTrash2, FiSend, FiLoader, FiVideo, FiType, FiEye, FiEdit3 } = FiIcons;
 
 /**
  * Détecte et extrait les informations d'un article depuis un message
@@ -56,256 +56,128 @@ export const isPublishableArticle = (text) => {
 };
 
 /**
- * Parse le contenu HTML en blocs structurés
+ * Extrait le texte brut du HTML
  */
-const parseContentToBlocks = (htmlContent) => {
-  if (!htmlContent) return [];
+const stripHtml = (html) => {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, '').trim();
+};
 
-  const blocks = [];
-  let blockId = 0;
+/**
+ * Parse le contenu pour extraire intro et textes
+ */
+const parseContentForTemplate = (htmlContent) => {
+  if (!htmlContent) return { intro: '', texte1: '', texte2: '' };
 
   // Nettoyer le contenu
   let content = htmlContent
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n');
 
-  // Regex pour détecter les différents types de blocs
-  const blockPatterns = [
-    { type: 'h1', regex: /<h1[^>]*>([\s\S]*?)<\/h1>/gi },
-    { type: 'h2', regex: /<h2[^>]*>([\s\S]*?)<\/h2>/gi },
-    { type: 'h3', regex: /<h3[^>]*>([\s\S]*?)<\/h3>/gi },
-    { type: 'p', regex: /<p[^>]*>([\s\S]*?)<\/p>/gi },
-    { type: 'ul', regex: /<ul[^>]*>([\s\S]*?)<\/ul>/gi },
-    { type: 'ol', regex: /<ol[^>]*>([\s\S]*?)<\/ol>/gi },
-  ];
+  // Extraire les paragraphes
+  const paragraphs = [];
+  const pRegex = /<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let match;
+  while ((match = pRegex.exec(content)) !== null) {
+    const text = stripHtml(match[1]);
+    if (text) paragraphs.push(text);
+  }
 
-  // Trouver tous les blocs HTML
-  const htmlBlocks = [];
-  blockPatterns.forEach(({ type, regex }) => {
-    let match;
-    while ((match = regex.exec(content)) !== null) {
-      htmlBlocks.push({
-        type,
-        content: match[0],
-        innerContent: match[1],
-        index: match.index
-      });
-    }
-  });
-
-  // Trier par position
-  htmlBlocks.sort((a, b) => a.index - b.index);
-
-  // Si on a des blocs HTML, les utiliser
-  if (htmlBlocks.length > 0) {
-    htmlBlocks.forEach((block) => {
-      blocks.push({
-        id: `block_${blockId++}`,
-        type: block.type === 'h1' || block.type === 'h2' || block.type === 'h3' ? 'heading' : block.type,
-        headingLevel: block.type.startsWith('h') ? parseInt(block.type[1]) : null,
-        content: block.innerContent.trim(),
-        rawHtml: block.content
-      });
-    });
-  } else {
-    // Sinon, parser par lignes/paragraphes
-    const lines = content.split('\n\n').filter(line => line.trim());
-    lines.forEach((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-
-      // Détecter les titres markdown
-      if (trimmed.startsWith('# ')) {
-        blocks.push({
-          id: `block_${blockId++}`,
-          type: 'heading',
-          headingLevel: 1,
-          content: trimmed.substring(2)
-        });
-      } else if (trimmed.startsWith('## ')) {
-        blocks.push({
-          id: `block_${blockId++}`,
-          type: 'heading',
-          headingLevel: 2,
-          content: trimmed.substring(3)
-        });
-      } else if (trimmed.startsWith('### ')) {
-        blocks.push({
-          id: `block_${blockId++}`,
-          type: 'heading',
-          headingLevel: 3,
-          content: trimmed.substring(4)
-        });
-      } else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
-        blocks.push({
-          id: `block_${blockId++}`,
-          type: 'ul',
-          content: trimmed
-        });
-      } else {
-        blocks.push({
-          id: `block_${blockId++}`,
-          type: 'p',
-          content: trimmed
-        });
-      }
+  // Si pas de balises p, séparer par lignes
+  if (paragraphs.length === 0) {
+    const lines = content.split('\n\n').filter(l => l.trim());
+    lines.forEach(line => {
+      const text = stripHtml(line);
+      if (text && !text.startsWith('#')) paragraphs.push(text);
     });
   }
 
-  return blocks;
-};
+  // Distribuer dans les sections
+  const intro = paragraphs[0] || '';
+  const texte1 = paragraphs.slice(1, Math.ceil(paragraphs.length / 2) + 1).join('\n\n');
+  const texte2 = paragraphs.slice(Math.ceil(paragraphs.length / 2) + 1).join('\n\n');
 
-/**
- * Convertit les blocs en HTML
- */
-const blocksToHtml = (blocks) => {
-  return blocks.map(block => {
-    if (block.type === 'image') {
-      return `<figure class="wp-block-image aligncenter size-large"><img src="{{${block.imageRef}}}" alt="${block.alt || ''}" /></figure>`;
-    }
-    if (block.type === 'heading') {
-      const tag = `h${block.headingLevel || 2}`;
-      return `<${tag}>${block.content}</${tag}>`;
-    }
-    if (block.type === 'ul' || block.type === 'ol') {
-      return block.rawHtml || `<${block.type}>${block.content}</${block.type}>`;
-    }
-    return `<p>${block.content}</p>`;
-  }).join('\n\n');
+  return { intro, texte1, texte2 };
 };
 
 const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
-  const [images, setImages] = useState([]);
-  const [blocks, setBlocks] = useState([]);
-  const [editedTitle, setEditedTitle] = useState('');
-  const [editedMeta, setEditedMeta] = useState('');
+  // Structure fixe correspondant à la template Divi
+  const [formData, setFormData] = useState({
+    // Row 1 - Intro
+    title: '',
+    introText: '',
+    // Row 2 - Contenu principal
+    slider1Images: [], // Carrousel 1
+    texte1: '',
+    videoUrl: '',
+    texte2: '',
+    slider2Images: [], // Carrousel 2
+    // Meta
+    metaDescription: ''
+  });
+
   const [isPublishing, setIsPublishing] = useState(false);
   const [activeTab, setActiveTab] = useState('edit');
-  const [dragOver, setDragOver] = useState(false);
-  const [editingBlockId, setEditingBlockId] = useState(null);
-  const [openInsertMenu, setOpenInsertMenu] = useState(null);
-  const fileInputRef = useRef(null);
+  const [dragOverZone, setDragOverZone] = useState(null);
 
-  // Initialiser les blocs quand l'article change
+  const slider1InputRef = useRef(null);
+  const slider2InputRef = useRef(null);
+
+  // Initialiser le formulaire quand l'article change
   React.useEffect(() => {
     if (article) {
-      setEditedTitle(article.title || '');
-      setEditedMeta(article.metaDescription || '');
-      setBlocks(parseContentToBlocks(article.content));
-      setOpenInsertMenu(null);
+      const { intro, texte1, texte2 } = parseContentForTemplate(article.content);
+      setFormData({
+        title: article.title || '',
+        introText: intro,
+        slider1Images: [],
+        texte1: texte1,
+        videoUrl: '',
+        texte2: texte2,
+        slider2Images: [],
+        metaDescription: article.metaDescription || ''
+      });
     }
   }, [article]);
 
-  // Fermer le menu d'insertion quand on clique ailleurs
-  React.useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (openInsertMenu && !e.target.closest('[data-insert-menu]')) {
-        setOpenInsertMenu(null);
-      }
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [openInsertMenu]);
-
-  const handleImageUpload = useCallback((files) => {
+  const handleImageUpload = useCallback((files, sliderKey) => {
     const newImages = Array.from(files).map((file, index) => ({
-      id: `img_${Date.now()}_${index}`,
+      id: `img_${Date.now()}_${index}_${Math.random().toString(36).substr(2, 9)}`,
       file,
       preview: URL.createObjectURL(file),
-      name: file.name
+      name: file.name,
+      type: file.type
     }));
-    setImages(prev => [...prev, ...newImages]);
+
+    setFormData(prev => ({
+      ...prev,
+      [sliderKey]: [...prev[sliderKey], ...newImages]
+    }));
   }, []);
 
-  const handleDrop = useCallback((e) => {
+  const handleDrop = useCallback((e, sliderKey) => {
     e.preventDefault();
-    setDragOver(false);
+    setDragOverZone(null);
     const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     if (files.length > 0) {
-      handleImageUpload(files);
+      handleImageUpload(files, sliderKey);
     }
   }, [handleImageUpload]);
 
-  const removeImage = useCallback((imageId) => {
-    setImages(prev => {
-      const img = prev.find(i => i.id === imageId);
+  const removeImage = useCallback((sliderKey, imageId) => {
+    setFormData(prev => {
+      const img = prev[sliderKey].find(i => i.id === imageId);
       if (img) URL.revokeObjectURL(img.preview);
-      return prev.filter(i => i.id !== imageId);
+      return {
+        ...prev,
+        [sliderKey]: prev[sliderKey].filter(i => i.id !== imageId)
+      };
     });
-    // Retirer le bloc image correspondant
-    setBlocks(prev => prev.filter(b => b.imageId !== imageId));
   }, []);
 
-  const insertImageAfterBlock = useCallback((blockId, imageId) => {
-    const image = images.find(i => i.id === imageId);
-    if (!image) return;
-
-    const newImageBlock = {
-      id: `block_img_${Date.now()}`,
-      type: 'image',
-      imageId: imageId,
-      imageRef: `IMAGE_${imageId}`,
-      preview: image.preview,
-      alt: image.name.replace(/\.[^.]+$/, '')
-    };
-
-    setBlocks(prev => {
-      const index = prev.findIndex(b => b.id === blockId);
-      if (index === -1) return [...prev, newImageBlock];
-      const newBlocks = [...prev];
-      newBlocks.splice(index + 1, 0, newImageBlock);
-      return newBlocks;
-    });
-  }, [images]);
-
-  const removeBlock = useCallback((blockId) => {
-    setBlocks(prev => prev.filter(b => b.id !== blockId));
+  const updateField = useCallback((field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
-
-  const updateBlockContent = useCallback((blockId, newContent) => {
-    setBlocks(prev => prev.map(b =>
-      b.id === blockId ? { ...b, content: newContent } : b
-    ));
-  }, []);
-
-  const handlePublish = async () => {
-    setIsPublishing(true);
-    try {
-      // Préparer les images avec leurs données base64
-      const imagesData = await Promise.all(
-        images.filter(img => blocks.some(b => b.imageId === img.id)).map(async (img) => {
-          const base64 = await fileToBase64(img.file);
-          return {
-            id: img.id,
-            name: img.name,
-            base64,
-            type: img.file.type
-          };
-        })
-      );
-
-      // Envoyer les blocs structurés (pas le HTML)
-      await onPublish({
-        title: editedTitle,
-        blocks: blocks.map(block => ({
-          id: block.id,
-          type: block.type,
-          headingLevel: block.headingLevel || null,
-          content: block.content || '',
-          imageId: block.imageId || null,
-          alt: block.alt || ''
-        })),
-        metaDescription: editedMeta,
-        images: imagesData
-      });
-
-      onClose();
-    } catch (error) {
-      console.error('Erreur publication:', error);
-    } finally {
-      setIsPublishing(false);
-    }
-  };
 
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
@@ -316,9 +188,115 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
     });
   };
 
-  const insertedImageIds = useMemo(() =>
-    new Set(blocks.filter(b => b.type === 'image').map(b => b.imageId)),
-    [blocks]
+  const handlePublish = async () => {
+    setIsPublishing(true);
+    try {
+      // Préparer les images du slider 1
+      const slider1Data = await Promise.all(
+        formData.slider1Images.map(async (img) => {
+          const base64 = await fileToBase64(img.file);
+          return {
+            id: img.id,
+            name: img.name,
+            base64,
+            type: img.type
+          };
+        })
+      );
+
+      // Préparer les images du slider 2
+      const slider2Data = await Promise.all(
+        formData.slider2Images.map(async (img) => {
+          const base64 = await fileToBase64(img.file);
+          return {
+            id: img.id,
+            name: img.name,
+            base64,
+            type: img.type
+          };
+        })
+      );
+
+      // Envoyer les données structurées selon la template
+      await onPublish({
+        title: formData.title,
+        metaDescription: formData.metaDescription,
+        // Structure template Divi
+        template: {
+          intro: formData.introText,
+          slider1: slider1Data,
+          texte1: formData.texte1,
+          videoUrl: formData.videoUrl,
+          texte2: formData.texte2,
+          slider2: slider2Data
+        }
+      });
+
+      onClose();
+    } catch (error) {
+      console.error('Erreur publication:', error);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  // Composant pour une zone d'upload d'images (slider)
+  const ImageSliderZone = ({ sliderKey, images, inputRef, label }) => (
+    <div className="space-y-3">
+      <label className="block text-sm font-medium text-white flex items-center gap-2">
+        <SafeIcon icon={FiImage} className="text-[#D85A4A]" />
+        {label}
+        <span className="text-xs text-gray-500 font-normal">
+          ({images.length} image{images.length !== 1 ? 's' : ''})
+        </span>
+      </label>
+
+      {/* Zone de drop */}
+      <div
+        onDrop={(e) => handleDrop(e, sliderKey)}
+        onDragOver={(e) => { e.preventDefault(); setDragOverZone(sliderKey); }}
+        onDragLeave={() => setDragOverZone(null)}
+        onClick={() => inputRef.current?.click()}
+        className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+          dragOverZone === sliderKey
+            ? 'border-[#D85A4A] bg-[#D85A4A]/10'
+            : 'border-gray-700 hover:border-gray-600 bg-[#0a0a0a]'
+        }`}
+      >
+        <SafeIcon icon={FiUpload} className="text-2xl text-gray-500 mx-auto mb-2" />
+        <p className="text-sm text-gray-400">Glissez vos images ou cliquez</p>
+        <p className="text-xs text-gray-500 mt-1">Plusieurs images = carrousel</p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => handleImageUpload(e.target.files, sliderKey)}
+          className="hidden"
+        />
+      </div>
+
+      {/* Aperçu des images */}
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map((img) => (
+            <div key={img.id} className="relative group">
+              <img
+                src={img.preview}
+                alt={img.name}
+                className="w-20 h-20 object-cover rounded-lg border border-gray-700"
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); removeImage(sliderKey, img.id); }}
+                className="absolute -top-2 -right-2 p-1 bg-red-600 rounded-full text-white hover:bg-red-700 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <SafeIcon icon={FiTrash2} className="text-xs" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 
   if (!isOpen) return null;
@@ -336,7 +314,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="bg-[#141414] rounded-2xl w-full max-w-5xl max-h-[90vh] border border-gray-800/50 overflow-hidden flex flex-col"
+          className="bg-[#141414] rounded-2xl w-full max-w-4xl max-h-[90vh] border border-gray-800/50 overflow-hidden flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -370,246 +348,206 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-hidden flex">
-            {/* Main editor */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {activeTab === 'edit' ? (
-                <div className="space-y-4">
-                  {/* Titre */}
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-2">Titre SEO</label>
-                    <input
-                      type="text"
-                      value={editedTitle}
-                      onChange={(e) => setEditedTitle(e.target.value)}
-                      className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-800/50 rounded-xl text-white placeholder-gray-500 outline-none transition-all focus:border-[#D85A4A]/50"
-                      placeholder="Titre de l'article"
-                    />
+          <div className="flex-1 overflow-y-auto p-6">
+            {activeTab === 'edit' ? (
+              <div className="space-y-6">
+                {/* Meta Description */}
+                <div className="bg-[#0a0a0a] rounded-xl p-4 border border-gray-800/50">
+                  <label className="block text-sm text-gray-400 mb-2">Meta description (SEO)</label>
+                  <textarea
+                    value={formData.metaDescription}
+                    onChange={(e) => updateField('metaDescription', e.target.value)}
+                    className="w-full px-3 py-2 bg-transparent border border-gray-700 rounded-lg text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
+                    rows={2}
+                    placeholder="Description pour les moteurs de recherche..."
+                  />
+                </div>
+
+                {/* Section 1: Intro */}
+                <div className="bg-[#1a1a1a] rounded-xl p-4 border border-blue-900/30">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="px-2 py-1 bg-blue-900/50 text-blue-300 text-xs rounded">ROW 1</span>
+                    <span className="text-sm text-gray-400">Introduction</span>
                   </div>
 
-                  {/* Meta */}
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-2">Meta description</label>
-                    <textarea
-                      value={editedMeta}
-                      onChange={(e) => setEditedMeta(e.target.value)}
-                      className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-800/50 rounded-xl text-white placeholder-gray-500 outline-none resize-none"
-                      rows={2}
-                    />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2 flex items-center gap-2">
+                        <SafeIcon icon={FiType} className="text-[#D85A4A]" />
+                        Titre H1
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.title}
+                        onChange={(e) => updateField('title', e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none focus:border-[#D85A4A]/50"
+                        placeholder="Titre principal de l'article"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2">Paragraphe d'introduction</label>
+                      <textarea
+                        value={formData.introText}
+                        onChange={(e) => updateField('introText', e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
+                        rows={3}
+                        placeholder="Texte d'introduction..."
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: Contenu principal */}
+                <div className="bg-[#1a1a1a] rounded-xl p-4 border border-green-900/30">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="px-2 py-1 bg-green-900/50 text-green-300 text-xs rounded">ROW 2</span>
+                    <span className="text-sm text-gray-400">Contenu principal</span>
                   </div>
 
-                  {/* Blocs de contenu */}
-                  <div>
-                    <label className="block text-sm text-gray-400 mb-2">
-                      Contenu de l'article
-                      <span className="text-xs text-gray-500 ml-2">(Cliquez sur + pour insérer une image)</span>
-                    </label>
+                  <div className="space-y-6">
+                    {/* Slider 1 */}
+                    <ImageSliderZone
+                      sliderKey="slider1Images"
+                      images={formData.slider1Images}
+                      inputRef={slider1InputRef}
+                      label="Pixel Image Slider 1"
+                    />
 
-                    <div className="space-y-2">
-                      {blocks.map((block, index) => (
-                        <div key={block.id} className="group">
-                          {/* Bloc */}
-                          <div className={`relative bg-[#0a0a0a] border rounded-lg overflow-hidden ${
-                            block.type === 'image' ? 'border-[#D85A4A]/50' : 'border-gray-800/50'
-                          }`}>
-                            {block.type === 'image' ? (
-                              <div className="relative">
-                                <img src={block.preview} alt={block.alt} className="w-full max-h-64 object-contain bg-black/50" />
-                                <button
-                                  onClick={() => removeBlock(block.id)}
-                                  className="absolute top-2 right-2 p-1.5 bg-red-600 rounded-lg text-white hover:bg-red-700"
-                                >
-                                  <SafeIcon icon={FiTrash2} className="text-sm" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-start gap-2 p-3">
-                                <div className="flex-shrink-0 pt-1">
-                                  <span className={`text-xs px-2 py-0.5 rounded ${
-                                    block.type === 'heading'
-                                      ? 'bg-blue-900/50 text-blue-300'
-                                      : block.type === 'ul' || block.type === 'ol'
-                                      ? 'bg-purple-900/50 text-purple-300'
-                                      : 'bg-gray-800 text-gray-400'
-                                  }`}>
-                                    {block.type === 'heading' ? `H${block.headingLevel}` : block.type.toUpperCase()}
-                                  </span>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  {editingBlockId === block.id ? (
-                                    <textarea
-                                      value={block.content}
-                                      onChange={(e) => updateBlockContent(block.id, e.target.value)}
-                                      onBlur={() => setEditingBlockId(null)}
-                                      autoFocus
-                                      className="w-full bg-transparent text-white resize-none outline-none"
-                                      rows={3}
-                                    />
-                                  ) : (
-                                    <div
-                                      onClick={() => setEditingBlockId(block.id)}
-                                      className={`text-gray-200 cursor-text hover:bg-gray-800/30 rounded p-1 -m-1 ${
-                                        block.type === 'heading' ? 'font-semibold text-white' : ''
-                                      }`}
-                                      dangerouslySetInnerHTML={{ __html: block.content }}
-                                    />
-                                  )}
-                                </div>
-                                <button
-                                  onClick={() => removeBlock(block.id)}
-                                  className="flex-shrink-0 p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <SafeIcon icon={FiTrash2} className="text-sm" />
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                    {/* Texte 1 */}
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2 flex items-center gap-2">
+                        <SafeIcon icon={FiType} className="text-[#D85A4A]" />
+                        Bloc Texte 1
+                      </label>
+                      <textarea
+                        value={formData.texte1}
+                        onChange={(e) => updateField('texte1', e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
+                        rows={4}
+                        placeholder="Contenu texte (peut contenir plusieurs paragraphes)..."
+                      />
+                    </div>
 
-                          {/* Bouton d'insertion d'image entre les blocs */}
-                          {images.filter(img => !insertedImageIds.has(img.id)).length > 0 && (
-                            <div className="relative h-8 flex items-center justify-center" data-insert-menu>
-                              <div className="flex items-center gap-2 w-full px-4">
-                                <div className="h-px bg-gray-700/50 flex-1" />
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenInsertMenu(openInsertMenu === block.id ? null : block.id);
-                                  }}
-                                  className={`p-1.5 rounded-full text-white transition-colors ${
-                                    openInsertMenu === block.id ? 'bg-[#c44d3f]' : 'bg-[#D85A4A] hover:bg-[#c44d3f]'
-                                  }`}
-                                >
-                                  <SafeIcon icon={FiPlus} className="text-xs" />
-                                </button>
-                                <div className="h-px bg-gray-700/50 flex-1" />
-                              </div>
+                    {/* Vidéo */}
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2 flex items-center gap-2">
+                        <SafeIcon icon={FiVideo} className="text-[#D85A4A]" />
+                        Vidéo YouTube
+                        <span className="text-xs text-gray-500 font-normal">(optionnel)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.videoUrl}
+                        onChange={(e) => updateField('videoUrl', e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none focus:border-[#D85A4A]/50"
+                        placeholder="https://www.youtube.com/watch?v=..."
+                      />
+                    </div>
 
-                              {/* Menu dropdown */}
-                              {openInsertMenu === block.id && (
-                                <div
-                                  className="absolute left-1/2 -translate-x-1/2 top-full mt-1 bg-[#1a1a1a] border border-gray-700 rounded-lg p-2 z-50 min-w-[180px] shadow-xl"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <p className="text-xs text-gray-400 mb-2 px-1">Insérer une image :</p>
-                                  {images.filter(img => !insertedImageIds.has(img.id)).map(img => (
-                                    <button
-                                      key={img.id}
-                                      onClick={() => {
-                                        insertImageAfterBlock(block.id, img.id);
-                                        setOpenInsertMenu(null);
-                                      }}
-                                      className="flex items-center gap-2 w-full p-2 hover:bg-gray-800 rounded text-left transition-colors"
-                                    >
-                                      <img src={img.preview} alt="" className="w-10 h-10 object-cover rounded" />
-                                      <span className="text-sm text-gray-300 truncate flex-1">{img.name}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                    {/* Texte 2 */}
+                    <div>
+                      <label className="block text-sm font-medium text-white mb-2 flex items-center gap-2">
+                        <SafeIcon icon={FiType} className="text-[#D85A4A]" />
+                        Bloc Texte 2
+                      </label>
+                      <textarea
+                        value={formData.texte2}
+                        onChange={(e) => updateField('texte2', e.target.value)}
+                        className="w-full px-4 py-3 bg-[#0a0a0a] border border-gray-700 rounded-xl text-white placeholder-gray-500 outline-none resize-none focus:border-[#D85A4A]/50"
+                        rows={4}
+                        placeholder="Contenu texte (peut contenir plusieurs paragraphes)..."
+                      />
+                    </div>
+
+                    {/* Slider 2 */}
+                    <ImageSliderZone
+                      sliderKey="slider2Images"
+                      images={formData.slider2Images}
+                      inputRef={slider2InputRef}
+                      label="Pixel Image Slider 2"
+                    />
+                  </div>
+                </div>
+
+                {/* Section 3: CTA (fixe) */}
+                <div className="bg-[#1a1a1a] rounded-xl p-4 border border-purple-900/30 opacity-60">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="px-2 py-1 bg-purple-900/50 text-purple-300 text-xs rounded">ROW 3</span>
+                    <span className="text-sm text-gray-400">Call-to-Action (fixe)</span>
+                  </div>
+                  <p className="text-sm text-gray-500 italic">
+                    Cette section est générée automatiquement avec le texte et bouton "CONTACT" standard.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              /* Preview */
+              <div className="prose prose-invert max-w-none">
+                <div className="bg-[#0a0a0a] rounded-xl p-6 border border-gray-800/50 mb-6">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Aperçu de l'article</span>
+                </div>
+
+                {/* Row 1: Intro */}
+                <div className="mb-8 pb-8 border-b border-gray-800">
+                  <h1 className="text-3xl font-bold text-white mb-4">{formData.title || 'Titre de l\'article'}</h1>
+                  <p className="text-gray-300 text-lg">{formData.introText || 'Introduction...'}</p>
+                </div>
+
+                {/* Row 2: Contenu */}
+                <div className="space-y-8 mb-8 pb-8 border-b border-gray-800">
+                  {/* Slider 1 */}
+                  {formData.slider1Images.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {formData.slider1Images.map(img => (
+                        <img key={img.id} src={img.preview} alt="" className="h-48 rounded-lg object-cover" />
                       ))}
                     </div>
-                  </div>
-                </div>
-              ) : (
-                /* Preview */
-                <div className="prose prose-invert max-w-none">
-                  <h1 className="text-2xl font-bold text-white mb-4">{editedTitle}</h1>
-                  {editedMeta && (
-                    <p className="text-gray-400 italic border-l-2 border-[#D85A4A] pl-3 mb-6">{editedMeta}</p>
                   )}
-                  <div className="space-y-4">
-                    {blocks.map(block => {
-                      if (block.type === 'image') {
-                        return (
-                          <figure key={block.id} className="my-6">
-                            <img src={block.preview} alt={block.alt} className="max-w-full h-auto rounded-lg mx-auto" />
-                          </figure>
-                        );
-                      }
-                      if (block.type === 'heading') {
-                        const Tag = `h${block.headingLevel}`;
-                        return <Tag key={block.id} className="text-white font-semibold mt-6" dangerouslySetInnerHTML={{ __html: block.content }} />;
-                      }
-                      return <p key={block.id} className="text-gray-200" dangerouslySetInnerHTML={{ __html: block.content }} />;
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
 
-            {/* Sidebar - Images */}
-            <div className="w-64 border-l border-gray-800/50 p-4 overflow-y-auto">
-              <h3 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
-                <SafeIcon icon={FiImage} />
-                Images ({images.length})
-              </h3>
+                  {/* Texte 1 */}
+                  {formData.texte1 && (
+                    <div className="text-gray-200 whitespace-pre-line">{formData.texte1}</div>
+                  )}
 
-              {/* Drop zone */}
-              <div
-                onDrop={handleDrop}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all mb-4 ${
-                  dragOver ? 'border-[#D85A4A] bg-[#D85A4A]/10' : 'border-gray-700 hover:border-gray-600'
-                }`}
-              >
-                <SafeIcon icon={FiUpload} className="text-2xl text-gray-500 mx-auto mb-2" />
-                <p className="text-sm text-gray-400">Glissez vos images</p>
-                <p className="text-xs text-gray-500 mt-1">ou cliquez pour parcourir</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => handleImageUpload(e.target.files)}
-                  className="hidden"
-                />
-              </div>
-
-              {/* Liste des images */}
-              <div className="space-y-2">
-                {images.map((img) => (
-                  <div
-                    key={img.id}
-                    className={`relative group rounded-lg overflow-hidden border ${
-                      insertedImageIds.has(img.id) ? 'border-[#D85A4A]/50' : 'border-gray-700'
-                    }`}
-                  >
-                    <img src={img.preview} alt={img.name} className="w-full h-20 object-cover" />
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button
-                        onClick={() => removeImage(img.id)}
-                        className="p-2 bg-red-600 rounded-lg text-white hover:bg-red-700"
-                      >
-                        <SafeIcon icon={FiTrash2} />
-                      </button>
+                  {/* Vidéo */}
+                  {formData.videoUrl && (
+                    <div className="bg-gray-900 rounded-xl p-4 text-center">
+                      <SafeIcon icon={FiVideo} className="text-3xl text-gray-500 mb-2" />
+                      <p className="text-sm text-gray-400">Vidéo: {formData.videoUrl}</p>
                     </div>
-                    {insertedImageIds.has(img.id) && (
-                      <div className="absolute top-1 right-1 bg-[#D85A4A] text-white text-xs px-2 py-0.5 rounded">
-                        Inséré
-                      </div>
-                    )}
-                    <p className="text-xs text-gray-400 p-2 truncate">{img.name}</p>
-                  </div>
-                ))}
-              </div>
+                  )}
 
-              {images.length > 0 && images.filter(i => !insertedImageIds.has(i.id)).length > 0 && (
-                <p className="text-xs text-gray-500 mt-3">
-                  Survolez entre deux blocs et cliquez sur + pour insérer une image
-                </p>
-              )}
-            </div>
+                  {/* Texte 2 */}
+                  {formData.texte2 && (
+                    <div className="text-gray-200 whitespace-pre-line">{formData.texte2}</div>
+                  )}
+
+                  {/* Slider 2 */}
+                  {formData.slider2Images.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-2">
+                      {formData.slider2Images.map(img => (
+                        <img key={img.id} src={img.preview} alt="" className="h-48 rounded-lg object-cover" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Row 3: CTA */}
+                <div className="bg-gray-900/50 rounded-xl p-6 text-center">
+                  <h3 className="text-gray-400 text-sm mb-2">Prêt à donner une nouvelle dimension à votre projet ?</h3>
+                  <p className="text-gray-500 text-sm mb-4">Texte CTA standard...</p>
+                  <span className="inline-block px-6 py-2 bg-[#D85A4A] text-white rounded-lg">CONTACT</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
           <div className="p-4 border-t border-gray-800/50 flex justify-between items-center">
             <p className="text-sm text-gray-500">
-              {blocks.length} blocs • {insertedImageIds.size} images insérées
+              {formData.slider1Images.length + formData.slider2Images.length} images •
+              {formData.videoUrl ? ' 1 vidéo' : ' Pas de vidéo'}
             </p>
             <div className="flex gap-3">
               <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white transition-colors">
@@ -617,7 +555,7 @@ const ArticlePublishModal = ({ isOpen, onClose, article, onPublish }) => {
               </button>
               <button
                 onClick={handlePublish}
-                disabled={isPublishing || !editedTitle.trim()}
+                disabled={isPublishing || !formData.title.trim()}
                 className="px-6 py-2 bg-[#D85A4A] text-white rounded-xl font-medium flex items-center gap-2 hover:bg-[#c44d3f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPublishing ? (

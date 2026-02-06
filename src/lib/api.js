@@ -67,144 +67,16 @@ export const extractWebhookResponse = (data) => {
 };
 
 /**
- * Convertit un bloc en format structuré pour le webhook
- */
-const formatBlock = (block, position, imageIndex, images) => {
-  const baseBlock = { position };
-
-  switch (block.type) {
-    case 'image': {
-      const img = images.find(i => i.id === block.imageId);
-      const alt = block.alt || (img ? img.name.replace(/\.[^.]+$/, '') : '');
-      return {
-        ...baseBlock,
-        type: 'image',
-        imageKey: `IMAGE_${imageIndex}`,
-        imagePlaceholder: `{{IMAGE_${imageIndex}}}`,
-        alt,
-        html: `<figure class="wp-block-image aligncenter size-large"><img src="{{IMAGE_${imageIndex}}}" alt="${alt}" /></figure>`
-      };
-    }
-
-    case 'heading': {
-      const level = block.headingLevel || 2;
-      return {
-        ...baseBlock,
-        type: 'heading',
-        level,
-        text: block.content,
-        html: `<h${level}>${block.content}</h${level}>`
-      };
-    }
-
-    case 'ul':
-      return {
-        ...baseBlock,
-        type: 'list',
-        listType: 'unordered',
-        text: block.content,
-        html: `<ul>${block.content}</ul>`
-      };
-
-    case 'ol':
-      return {
-        ...baseBlock,
-        type: 'list',
-        listType: 'ordered',
-        text: block.content,
-        html: `<ol>${block.content}</ol>`
-      };
-
-    case 'blockquote':
-      return {
-        ...baseBlock,
-        type: 'quote',
-        text: block.content,
-        html: `<blockquote>${block.content}</blockquote>`
-      };
-
-    case 'code':
-      return {
-        ...baseBlock,
-        type: 'code',
-        text: block.content,
-        html: `<pre><code>${block.content}</code></pre>`
-      };
-
-    default:
-      // Paragraphe par défaut
-      return {
-        ...baseBlock,
-        type: 'paragraph',
-        text: block.content || '',
-        html: `<p>${block.content || ''}</p>`
-      };
-  }
-};
-
-/**
  * Publie un article sur WordPress via Netlify Function
- * La fonction gère l'upload des images et la création de l'article en format Divi
+ * Envoie la structure template Divi fixe avec les données du formulaire
  */
 export const publishToWordPress = async (articleData) => {
   try {
-    const blocks = articleData.blocks || [];
-    const images = articleData.images || [];
-
-    // Construire le contenu dynamiquement - s'adapte à n'importe quel nombre de blocs
-    let imageIndex = 0;
-    const content = blocks.map((block, position) => {
-      const formattedBlock = formatBlock(block, position, imageIndex, images);
-      if (block.type === 'image') imageIndex++;
-      return formattedBlock;
-    });
-
-    // Extraire les images utilisées (dans l'ordre d'apparition)
-    const imagesData = {};
-    let imgIdx = 0;
-    blocks.forEach(block => {
-      if (block.type === 'image') {
-        const img = images.find(i => i.id === block.imageId);
-        if (img) {
-          imagesData[`IMAGE_${imgIdx}`] = {
-            base64: img.base64,
-            filename: img.name,
-            mimeType: img.type,
-            alt: block.alt || img.name.replace(/\.[^.]+$/, '')
-          };
-          imgIdx++;
-        }
-      }
-    });
-
-    // Calculer les statistiques dynamiquement
-    const typeCount = content.reduce((acc, block) => {
-      acc[block.type] = (acc[block.type] || 0) + 1;
-      return acc;
-    }, {});
-
+    // Le frontend envoie directement la structure template
     const payload = {
-      // === ARTICLE ===
       title: articleData.title || '',
       metaDescription: articleData.metaDescription || '',
-
-      // === CONTENU DÉTAILLÉ (tableau dynamique, dans l'ordre exact) ===
-      content,
-
-      // === IMAGES (objet dynamique avec toutes les images utilisées) ===
-      images: imagesData,
-
-      // === STATISTIQUES (calculées dynamiquement) ===
-      stats: {
-        totalBlocks: content.length,
-        totalImages: Object.keys(imagesData).length,
-        // Compte dynamique par type de bloc
-        ...Object.fromEntries(
-          Object.entries(typeCount).map(([type, count]) => [`total_${type}`, count])
-        )
-      },
-
-      // === MÉTADONNÉES ===
+      template: articleData.template || {},
       timestamp: new Date().toISOString()
     };
 
@@ -217,7 +89,8 @@ export const publishToWordPress = async (articleData) => {
     });
 
     if (!response.ok) {
-      throw new Error(`Erreur WordPress: ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Erreur WordPress: ${response.status} - ${errorText}`);
     }
 
     const result = await response.json().catch(() => response.text());
